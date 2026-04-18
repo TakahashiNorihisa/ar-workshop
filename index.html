@@ -1,0 +1,67 @@
+﻿<html>
+<head>
+    <meta charset='UTF-8'>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MindARでcanvas画像を表示（画像認識版）</title>
+    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+</head>
+<body>
+    <script>
+        AFRAME.registerComponent('canvas-texture', {
+            init: function() {
+                this.canvas = document.querySelector("#arCanvas");
+                this.canvas.width = 440;
+                this.canvas.height = 440;
+                this.context = this.canvas.getContext('2d');
+            },
+            tick: function(t, dt) {
+                // canvasから画像を取得
+                var sourceCanvas = document.querySelector('#drawCanvas');
+                var image = sourceCanvas.getContext('2d').getImageData(0, 0, 440, 440);
+                // 取得した画像を貼り付け
+                this.context.putImageData(image, 0, 0);
+                
+                let material = this.el.getObject3D("mesh").material;
+                if (!material.map) return;
+                else material.map.needsUpdate = true;
+            }
+        });
+    </script>
+
+    <div style="position:absolute; left:90px; top:50px; width: 500px; height: 500px;">
+        <a-scene mindar-image="imageTargetSrc: ./targets.mind;" embedded color-space='sRGB'
+            renderer='colorManagement: true, physicallyCorrectLights'
+            vr-mode-ui='enabled: false'
+            device-orientation-permission-ui='enabled: false'>
+            
+            <a-assets>
+                <canvas id="arCanvas"></canvas>
+            </a-assets>
+            
+            <a-camera active='false' position='0 0 0'></a-camera>
+            
+            <a-entity mindar-image-target='targetIndex: 0'>
+                <a-plane
+                    position="0 0 0" scale="1 1 1"
+                    material="src: #arCanvas; transparent: true; opacity: 0.95;"
+                    canvas-texture>
+                </a-plane>
+            </a-entity>
+        </a-scene>
+    </div>
+
+    <div style="position:absolute; left:690px; top:50px; width: 440px; height: 440px;">
+        <canvas id="drawCanvas" width="440px" height="440px"
+            style="z-index: 2; border: 1px solid rgba(0,0,0,1); background-color: rgba(255,255,255,0);">
+        </canvas>
+    </div>
+
+    <script>
+        var context = document.querySelector("#drawCanvas").getContext("2d");
+        context.fillStyle = 'red';
+        context.font = '40px Roboto medium';
+        context.fillText("文字を表示します。", 10, 100);
+    </script>
+</body>
+</html>
