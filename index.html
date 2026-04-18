@@ -3,35 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>お絵かきAR</title>
+    <title>顔認識お絵かきAR</title>
     <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
-    
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-face-aframe.prod.js"></script>
     <style>
         body { margin: 0; overflow: hidden; }
-        /* 描画エリアのスタイル */
-        #ui-layer { position: absolute; top: 10px; left: 10px; z-index: 100; background: rgba(255,255,255,0.8); padding: 10px; border-radius: 10px; }
-        canvas { border: 2px solid #333; background: white; touch-action: none; }
+        #ui-layer { position: absolute; top: 10px; left: 10px; z-index: 100; background: white; padding: 10px; border-radius: 10px; }
+        canvas { border: 1px solid black; cursor: crosshair; }
     </style>
 </head>
 <body>
 
     <div id="ui-layer">
         <canvas id="drawCanvas" width="300" height="300"></canvas><br>
-        <button onclick="clearCanvas()">消去</button>
+        <button onclick="document.getElementById('drawCanvas').getContext('2d').clearRect(0,0,300,300);">消去</button>
     </div>
 
-    <a-scene mindar-image="imageTargetSrc: ./targets.mind;" embedded vr-mode-ui="enabled: false">
-        <a-assets>
-            <img id="textureSource" src="">
-        </a-assets>
+    <a-scene mindar-face embedded vr-mode-ui="enabled: false">
+        <a-camera active="false" position="0 0 0"></a-camera>
         
-        <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
-
-        <a-entity mindar-image-target="targetIndex: 0">
-            <a-plane id="arPlane" position="0 0 0" width="1" height="1" 
-                     material="src: #drawCanvas; transparent: true; alphaTest: 0.1" 
-                     canvas-update>
+        <a-entity mindar-face-target="anchorIndex: 1">
+            <a-plane id="arPlane" position="0 0 0" scale="1 1 1"
+                     material="src: #drawCanvas; transparent: true; opacity: 0.9;"
+                     canvas-texture>
             </a-plane>
         </a-entity>
     </a-scene>
@@ -42,8 +36,8 @@
         const ctx = canvas.getContext('2d');
         let painting = false;
 
-        function startPosition(e) { painting = true; draw(e); }
-        function finishedPosition() { painting = false; ctx.beginPath(); }
+        function start(e) { painting = true; draw(e); }
+        function end() { painting = false; ctx.beginPath(); }
         function draw(e) {
             if (!painting) return;
             ctx.lineWidth = 10;
@@ -51,29 +45,16 @@
             const rect = canvas.getBoundingClientRect();
             const x = (e.clientX || e.touches[0].clientX) - rect.left;
             const y = (e.clientY || e.touches[0].clientY) - rect.top;
-            ctx.lineTo(x, y);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(x, y);
+            ctx.lineTo(x, y); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x, y);
         }
+        canvas.addEventListener('mousedown', start); canvas.addEventListener('mouseup', end); canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('touchstart', start); canvas.addEventListener('touchend', end); canvas.addEventListener('touchmove', draw);
 
-        canvas.addEventListener('mousedown', startPosition);
-        canvas.addEventListener('mouseup', finishedPosition);
-        canvas.addEventListener('mousemove', draw);
-        canvas.addEventListener('touchstart', startPosition);
-        canvas.addEventListener('touchend', finishedPosition);
-        canvas.addEventListener('touchmove', draw);
-
-        function clearCanvas() { ctx.clearRect(0, 0, canvas.width, canvas.height); }
-
-        // 2. A-Frameにキャンバスの更新を伝えるコンポーネント
-        AFRAME.registerComponent('canvas-update', {
+        // 2. キャンバス更新用コンポーネント
+        AFRAME.registerComponent('canvas-texture', {
             tick: function() {
-                const material = this.el.getObject3D("mesh").material;
-                if (material.map) {
-                    // Canvasの内容が変わったことをA-Frameに通知
-                    material.map.needsUpdate = true;
-                }
+                const mat = this.el.getObject3D("mesh").material;
+                if (mat.map) mat.map.needsUpdate = true;
             }
         });
     </script>
