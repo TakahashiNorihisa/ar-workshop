@@ -3,27 +3,35 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>顔認識お絵かきAR</title>
+    <title>お絵かき顔AR</title>
     <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-face-aframe.prod.js"></script>
     <style>
         body { margin: 0; overflow: hidden; }
-        #ui-layer { position: absolute; top: 10px; left: 10px; z-index: 100; background: white; padding: 10px; border-radius: 10px; }
-        canvas { border: 1px solid black; cursor: crosshair; }
+        /* 操作パネル */
+        #ui-layer { 
+            position: absolute; top: 10px; left: 10px; z-index: 100; 
+            background: rgba(255,255,255,0.9); padding: 10px; border-radius: 10px;
+        }
+        canvas { border: 1px solid black; cursor: crosshair; display: block; }
     </style>
 </head>
 <body>
 
     <div id="ui-layer">
-        <canvas id="drawCanvas" width="300" height="300"></canvas><br>
-        <button onclick="document.getElementById('drawCanvas').getContext('2d').clearRect(0,0,300,300);">消去</button>
+        <canvas id="drawCanvas" width="300" height="300"></canvas>
+        <br>
+        色: <input type="color" id="colorPicker" value="#ff0000">
+        太さ: <input type="range" id="sizeRange" min="1" max="50" value="10">
+        <br>
+        <button onclick="clearCanvas()">全部消す</button>
     </div>
 
     <a-scene mindar-face embedded vr-mode-ui="enabled: false">
         <a-camera active="false" position="0 0 0"></a-camera>
         
         <a-entity mindar-face-target="anchorIndex: 1">
-            <a-plane id="arPlane" position="0 0 0" scale="1 1 1"
+            <a-plane id="arPlane" position="0 0.5 0.1" scale="1 1 1"
                      material="src: #drawCanvas; transparent: true; opacity: 0.9;"
                      canvas-texture>
             </a-plane>
@@ -31,26 +39,43 @@
     </a-scene>
 
     <script>
-        // 1. お絵かき機能
         const canvas = document.getElementById('drawCanvas');
         const ctx = canvas.getContext('2d');
+        const colorPicker = document.getElementById('colorPicker');
+        const sizeRange = document.getElementById('sizeRange');
+        
         let painting = false;
 
         function start(e) { painting = true; draw(e); }
         function end() { painting = false; ctx.beginPath(); }
         function draw(e) {
             if (!painting) return;
-            ctx.lineWidth = 10;
+            
+            // 色と太さを取得
+            ctx.strokeStyle = colorPicker.value;
+            ctx.lineWidth = sizeRange.value;
             ctx.lineCap = 'round';
+            
             const rect = canvas.getBoundingClientRect();
             const x = (e.clientX || e.touches[0].clientX) - rect.left;
             const y = (e.clientY || e.touches[0].clientY) - rect.top;
-            ctx.lineTo(x, y); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x, y);
+            
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(x, y);
         }
-        canvas.addEventListener('mousedown', start); canvas.addEventListener('mouseup', end); canvas.addEventListener('mousemove', draw);
-        canvas.addEventListener('touchstart', start); canvas.addEventListener('touchend', end); canvas.addEventListener('touchmove', draw);
 
-        // 2. キャンバス更新用コンポーネント
+        canvas.addEventListener('mousedown', start);
+        canvas.addEventListener('mouseup', end);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('touchstart', start);
+        canvas.addEventListener('touchend', end);
+        canvas.addEventListener('touchmove', draw);
+
+        function clearCanvas() { ctx.clearRect(0, 0, canvas.width, canvas.height); }
+
+        // A-Frame用テクスチャ更新コンポーネント
         AFRAME.registerComponent('canvas-texture', {
             tick: function() {
                 const mat = this.el.getObject3D("mesh").material;
