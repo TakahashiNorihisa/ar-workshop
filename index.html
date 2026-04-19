@@ -2,9 +2,9 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1, width=device-width">
-    <title>Rakugaki AR.js v1.1.8</title>
-    <!-- AR.jsとA-Frameのライブラリ [3, 4] -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>AR.js Rakugaki Stable</title>
+    <!-- A-Frame と AR.js の読み込み -->
     <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
     
@@ -12,142 +12,126 @@
         body { margin: 0; overflow: hidden; touch-action: none; }
         #ui-panel {
             position: fixed; top: 10px; left: 10px; z-index: 1000;
-            background: rgba(0,0,0,0.8); color: white; padding: 12px;
-            border-radius: 10px; font-family: sans-serif; font-size: 12px;
+            background: rgba(0,0,0,0.8); color: white; padding: 12px; border-radius: 8px;
+            font-family: sans-serif; font-size: 12px;
         }
-        #version-tag { color: #00ff00; font-weight: bold; }
-        
-        /* スムーズに動くジョイスティックUI */
-        #joystick-base {
+        /* コントローラー（白い丸）のスタイル */
+        #joy-base {
             position: fixed; bottom: 40px; left: 40px; width: 100px; height: 100px;
-            background: rgba(255, 255, 255, 0.2); border-radius: 50%; z-index: 2000;
-            border: 3px solid rgba(255, 255, 255, 0.4);
+            background: rgba(255,255,255,0.2); border-radius: 50%; z-index: 2000;
+            border: 2px solid rgba(255,255,255,0.4);
         }
-        #joystick-knob {
+        #joy-knob {
             position: absolute; top: 25px; left: 25px; width: 50px; height: 50px;
-            background: #ffffff; border-radius: 50%; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-            transition: transform 0.1s ease-out; /* スムーズな戻り */
+            background: white; border-radius: 50%; transition: transform 0.1s ease-out;
         }
     </style>
-
-    <script>
-        let planeEl = null;
-        let isDragging = false;
-        let startX, startY;
-        let currentPos = { x: 0, y: 0.1, z: 0 };
-
-        window.onload = () => {
-            const fileInput = document.getElementById('image-upload');
-            const status = document.getElementById('status');
-            const knob = document.getElementById('joystick-knob');
-            planeEl = document.getElementById('rakugaki-plane');
-
-            // 【根本解決】ファイル読み込みエラーの修正
-            fileInput.addEventListener('change', function(e) {
-                const files = e.target.files;
-                if (!files || files.length === 0) return;
-                
-                // files とすることで、リストから「ファイル実体」を確実に取り出す
-                const targetFile = files[0]; 
-                status.innerText = "ステータス: 透過処理中...";
-
-                const reader = new FileReader();
-                reader.onload = function(event) {
-                    const img = new Image();
-                    img.onload = function() {
-                        const canvas = document.createElement('canvas');
-                        canvas.width = 512; canvas.height = 512;
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0, 512, 512);
-
-                        // 背景透過処理（白を透明に）
-                        const imageData = ctx.getImageData(0, 0, 512, 512);
-                        const data = imageData.data;
-                        for (let i = 0; i < data.length; i += 4) {
-                            // RGB > 200の部分（白い紙の部分）を透明にする
-                            if (data[i] > 200 && data[i+1] > 200 && data[i+2] > 200) { data[i+3] = 0; }
-                        }
-                        ctx.putImageData(imageData, 0, 0);
-
-                        // ARの板に反映
-                        planeEl.setAttribute('material', {
-                            src: canvas,
-                            transparent: true,
-                            shader: 'flat',
-                            opacity: 1.0
-                        });
-                        status.innerText = "ステータス: 完了！かざして動かしてね";
-                    };
-                    img.src = event.target.result;
-                };
-                reader.readAsDataURL(targetFile); // 正しいBlobデータを渡す
-            });
-
-            // コントローラー操作：アニメーションのように滑らかに連動
-            knob.addEventListener('touchstart', (e) => {
-                isDragging = true;
-                startX = e.touches.clientX;
-                startY = e.touches.clientY;
-                knob.style.transition = "none"; 
-            });
-
-            window.addEventListener('touchmove', (e) => {
-                if (!isDragging || !planeEl) return;
-                
-                const moveX = e.touches.clientX;
-                const moveY = e.touches.clientY;
-
-                // スティックの見た目を動かす
-                const visualX = Math.max(-30, Math.min(30, moveX - startX));
-                const visualY = Math.max(-30, Math.min(30, moveY - startY));
-                knob.style.transform = `translate(${visualX}px, ${visualY}px)`;
-
-                // AR画像の座標をリアルタイムで「アニメーションのように」移動
-                currentPos.x += (moveX - startX) * 0.005;
-                currentPos.z += (moveY - startY) * 0.005;
-                planeEl.setAttribute('position', `${currentPos.x} ${currentPos.y} ${currentPos.z}`);
-                
-                startX = moveX;
-                startY = moveY;
-            });
-
-            window.addEventListener('touchend', () => {
-                isDragging = false;
-                knob.style.transition = "transform 0.2s ease-out";
-                knob.style.transform = `translate(0px, 0px)`;
-            });
-        };
-    </script>
 </head>
 
 <body style="margin:0px; overflow:hidden;">
+    <!-- 操作パネル -->
     <div id="ui-panel">
-        <div id="version-tag">AR.js VERSION: v1.1.8</div>
-        <b>えをえらんでね！</b>
-        <input type="file" id="image-upload" accept="image/*">
-        <div id="status" style="margin-top:5px;">準備中...</div>
+        <b>AR.js版 らくがきAR</b><br>
+        <input type="file" id="image-up" accept="image/*"><br>
+        <span id="status">準備中...</span>
     </div>
 
-    <div id="joystick-base">
-        <div id="joystick-knob"></div>
-    </div>
+    <!-- ジョイスティック -->
+    <div id="joy-base"><div id="joy-knob"></div></div>
 
-    <!-- AR.js のシーン設定 [4] -->
+    <!-- ARシーンの設定：embedded arjs 属性が必須です -->
     <a-scene embedded arjs="debugUIEnabled: false; trackingMethod: best;">
-        <!-- ヒロマーカーのプリセット [1, 2] -->
+        <!-- ヒロマーカーをターゲットに設定 -->
         <a-marker preset="hiro">
-            <!-- 
-                初期は透明(opacity:0)にしておき、画像読み込み後に表示 
-                rotation="-90 0 0" でマーカーの上に水平に配置
-            -->
+            <!-- 透過処理した絵を表示する板。初期は透明 -->
             <a-plane id="rakugaki-plane" 
-                     position="0 0.1 0" 
+                     position="0 0.5 0" 
                      rotation="-90 0 0" 
                      width="1" height="1" 
-                     material="transparent: true; opacity: 0; side: double">
+                     material="transparent: true; opacity: 0; shader: flat; side: double">
             </a-plane>
         </a-marker>
+        <!-- AR用のカメラ -->
         <a-entity camera></a-entity>
     </a-scene>
+
+    <script>
+        const up = document.getElementById('image-up');
+        const st = document.getElementById('status');
+        const pl = document.getElementById('rakugaki-plane');
+        const knob = document.getElementById('joy-knob');
+        
+        let currentPos = { x: 0, y: 0.5, z: 0 };
+        let isDragging = false, startX, startY;
+
+        // 画像のアップロードと背景透過処理
+        up.addEventListener('change', function(e) {
+            // [根本解決] files とすることで、Blob(ファイル実体)を正しく取得します
+            const file = e.target.files[0];
+            if (!file) return;
+
+            st.innerText = "ステータス: 透過処理中...";
+            const reader = new FileReader();
+
+            reader.onload = function(event) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 512; canvas.height = 512;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, 512, 512);
+
+                    // 透過処理：白い部分を透明にする
+                    const imageData = ctx.getImageData(0, 0, 512, 512);
+                    const data = imageData.data;
+                    for (let i = 0; i < data.length; i += 4) {
+                        if (data[i] > 200 && data[i+1] > 200 && data[i+2] > 200) {
+                            data[i + 3] = 0; // アルファ値を0にして透明化
+                        }
+                    }
+                    ctx.putImageData(imageData, 0, 0);
+
+                    // A-Frameの板にテクスチャとして反映
+                    pl.setAttribute('material', { src: canvas, opacity: 1 });
+                    st.innerText = "ステータス: 完了！マーカーにかざしてね";
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        // コントローラー操作：スティックを動かしてAR画像を移動させる
+        knob.addEventListener('touchstart', (e) => {
+            isDragging = true;
+            startX = e.touches.clientX;
+            startY = e.touches.clientY;
+            knob.style.transition = "none";
+        });
+
+        window.addEventListener('touchmove', (e) => {
+            if (!isDragging) return;
+            const moveX = e.touches.clientX;
+            const moveY = e.touches.clientY;
+
+            // スティックの視覚的移動
+            const vX = Math.max(-25, Math.min(25, moveX - startX));
+            const vY = Math.max(-25, Math.min(25, moveY - startY));
+            knob.style.transform = `translate(${vX}px, ${vY}px)`;
+
+            // AR画像の座標移動
+            currentPos.x += (moveX - startX) * 0.005;
+            currentPos.z += (moveY - startY) * 0.005;
+            pl.setAttribute('position', `${currentPos.x} ${currentPos.y} ${currentPos.z}`);
+
+            startX = moveX;
+            startY = moveY;
+        });
+
+        window.addEventListener('touchend', () => {
+            isDragging = false;
+            knob.style.transition = "transform 0.2s ease-out";
+            knob.style.transform = "translate(0,0)";
+        });
+    </script>
 </body>
 </html>
