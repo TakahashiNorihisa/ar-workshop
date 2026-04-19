@@ -1,85 +1,158 @@
 ﻿<!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
     <meta charset="utf-8">
-    <title>WebAR Transparent Upload v1.1.1</title>
+    <title>WebAR Rakugaki Pro v1.1.2</title>
+    <!-- MindARとA-Frameの読み込み [1-3] -->
     <script src="https://aframe.io/releases/1.4.1/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.1/dist/mindar-image-aframe.prod.js"></script>
     
     <style>
-        body { margin: 0; overflow: hidden; }
-        #ui {
+        body { margin: 0; overflow: hidden; touch-action: none; }
+        /* 画面上部の操作パネル */
+        #ui-panel {
             position: fixed; top: 10px; left: 10px; z-index: 1000;
-            background: rgba(0,0,0,0.7); color: white; padding: 15px;
-            border-radius: 10px; font-family: sans-serif;
+            background: rgba(0,0,0,0.7); color: white; padding: 10px;
+            border-radius: 8px; font-family: sans-serif; font-size: 12px;
         }
-        input[type="file"] { margin-top: 10px; display: block; }
+        #version-tag { color: #00ffff; font-weight: bold; margin-bottom: 5px; }
+        input[type="file"] { margin-top: 8px; display: block; font-size: 10px; }
+
+        /* コントローラー（ジョイスティック）のUI [4, 5] */
+        #joystick-base {
+            position: fixed; bottom: 30px; left: 30px; width: 80px; height: 80px;
+            background: rgba(255, 255, 255, 0.2); border-radius: 50%; z-index: 2000;
+            border: 2px solid rgba(255, 255, 255, 0.5);
+        }
+        #joystick-knob {
+            position: absolute; top: 20px; left: 20px; width: 40px; height: 40px;
+            background: white; border-radius: 50%; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
     </style>
+
+    <script>
+        let planeEl = null;
+        let isDragging = false;
+        let startX, startY;
+        let currentPos = { x: 0, y: 0.1, z: 0.1 };
+
+        // MindARのロジック管理 [6-8]
+        AFRAME.registerComponent('rakugaki-logic', {
+            init: function () {
+                planeEl = this.el;
+                document.getElementById('status').innerText = "ステータス: ヒロマーカーをまってます";
+            }
+        });
+
+        // 画像アップロードと透過処理のJavaScript
+        window.onload = () => {
+            const fileInput = document.getElementById('image-upload');
+            const status = document.getElementById('status');
+            const knob = document.getElementById('joystick-knob');
+
+            fileInput.addEventListener('change', function(e) {
+                const file = e.target.files; // 修正箇所: を追加して最初のファイルを取得
+                if (!file) return;
+
+                status.innerText = "ステータス: とうめいに しています...";
+                const reader = new FileReader();
+                
+                reader.onload = function(event) {
+                    const img = new Image();
+                    img.onload = function() {
+                        // Canvasを利用した画像加工 (canvas-textureの原理) [8, 9]
+                        const canvas = document.createElement('canvas');
+                        canvas.width = 512;
+                        canvas.height = 512;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, 512, 512);
+
+                        // 背景を透明にする（クロマキー処理）
+                        const imageData = ctx.getImageData(0, 0, 512, 512);
+                        const data = imageData.data;
+                        for (let i = 0; i < data.length; i += 4) {
+                            const r = data[i], g = data[i+1], b = data[i+2];
+                            // 白に近い色を透明に設定
+                            if (r > 200 && g > 200 && b > 200) { data[i + 3] = 0; }
+                        }
+                        ctx.putImageData(imageData, 0, 0);
+
+                        // A-Frameの平面（Plane）に反映
+                        if (planeEl) {
+                            planeEl.setAttribute('material', {
+                                src: canvas,
+                                transparent: true,
+                                shader: 'flat',
+                                opacity: 1.0
+                            });
+                            planeEl.emit('start-rising');
+                            status.innerText = "ステータス: じゅんびOK！マーカーにかざしてね";
+                        }
+                    };
+                    img.src = event.target.result;
+                };
+                reader.readAsDataURL(file);
+            });
+
+            // ジョイスティック操作のイベントリスナー
+            knob.addEventListener('touchstart', (e) => {
+                isDragging = true;
+                startX = e.touches.clientX;
+                startY = e.touches.clientY;
+            });
+
+            window.addEventListener('touchmove', (e) => {
+                if (!isDragging || !planeEl) return;
+                const dx = (e.touches.clientX - startX) * 0.005;
+                const dy = (e.touches.clientY - startY) * 0.005;
+
+                // つまみの見た目を動かす
+                const vX = Math.max(-20, Math.min(20, e.touches.clientX - startX));
+                const vY = Math.max(-20, Math.min(20, e.touches.clientY - startY));
+                knob.style.transform = `translate(${vX}px, ${vY}px)`;
+
+                // AR画像の座標を更新
+                currentPos.x += dx;
+                currentPos.z += dy;
+                planeEl.setAttribute('position', `${currentPos.x} ${currentPos.y} ${currentPos.z}`);
+                
+                startX = e.touches.clientX;
+                startY = e.touches.clientY;
+            });
+
+            window.addEventListener('touchend', () => {
+                isDragging = false;
+                knob.style.transform = `translate(0px, 0px)`;
+            });
+        };
+    </script>
 </head>
 <body>
-    <div id="ui">
+    <div id="ui-panel">
+        <div id="version-tag">VERSION: v1.1.2 (Stable)</div>
         <b>えをえらんでね！</b>
         <input type="file" id="image-upload" accept="image/*">
-        <div id="status" style="font-size: 11px; margin-top:5px;">ヒロマーカーにかざしてね</div>
+        <div id="status" style="margin-top:5px;">準備中...</div>
     </div>
 
+    <!-- ジョイスティックUI -->
+    <div id="joystick-base">
+        <div id="joystick-knob"></div>
+    </div>
+
+    <!-- MindAR Scene [3, 10, 11] -->
     <a-scene mindar-image="imageTargetSrc: ./hiro.mind;" vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false" color-space="sRGB" renderer="colorManagement: true">
         <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
         <a-entity mindar-image-target="targetIndex: 0">
-            <!-- 透過した絵を表示する板 -->
-            <a-plane id="rakugaki-plane" position="0 0.1 0.1" width="1" height="1" 
-                     material="transparent: true; shader: flat; side: double; opacity: 0"
-                     animation__rise="property: rotation; from: 0 0 0; to: 90 0 0; dur: 1000; easing: easeOutBack; startEvents: start-rising">
+            <!-- 透過した絵を表示する板 [2, 11, 12] -->
+            <a-plane id="rakugaki-plane" rakugaki-logic
+                     position="0 0.1 0.1" width="1" height="1" 
+                     material="transparent: true; opacity: 0; side: double"
+                     animation__rise="property: rotation; from: 0 0 0; to: 90 0 0; dur: 800; easing: easeOutBack; startEvents: start-rising">
             </a-plane>
         </a-entity>
     </a-scene>
-
-    <script>
-        const fileInput = document.getElementById('image-upload');
-        const plane = document.getElementById('rakugaki-plane');
-        const status = document.getElementById('status');
-
-        fileInput.addEventListener('change', function(e) {
-            const file = e.target.files;
-            if (!file) return;
-
-            status.innerText = "とうめいに しています...";
-            const reader = new FileReader();
-            
-            reader.onload = function(event) {
-                const img = new Image();
-                img.onload = function() {
-                    // 背景透過処理用のキャンバス
-                    const canvas = document.createElement('canvas');
-                    canvas.width = img.width;
-                    canvas.height = img.height;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0);
-
-                    // ピクセル単位で白っぽい部分を透明にする
-                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                    const data = imageData.data;
-                    for (let i = 0; i < data.length; i += 4) {
-                        const r = data[i], g = data[i+1], b = data[i+2];
-                        // RGBがすべて200以上（白に近い色）なら透明にする
-                        if (r > 200 && g > 200 && b > 200) {
-                            data[i + 3] = 0; // アルファ値を0にする
-                        }
-                    }
-                    ctx.putImageData(imageData, 0, 0);
-
-                    // ARの板にテクスチャとしてセット
-                    plane.setAttribute('material', 'src', canvas);
-                    plane.setAttribute('material', 'opacity', 1);
-                    plane.emit('start-rising'); // 立ち上がるアニメーション開始
-                    status.innerText = "かんりょう！マーカーにかざしてね";
-                };
-                img.src = event.target.result;
-            };
-            reader.readAsDataURL(file);
-        });
-    </script>
 </body>
 </html>
