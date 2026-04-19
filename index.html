@@ -1,10 +1,10 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>AR.js らくがきAR</title>
-    <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
+    <script src="https://aframe.io/releases/1.0.4/aframe.min.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
     
     <style>
@@ -82,7 +82,7 @@
 <body>
     <!-- 操作パネル -->
     <div id="ui-panel">
-        <b>?? らくがきAR</b><br>
+        <b>🎨 らくがきAR</b><br>
         <input type="file" id="image-up" accept="image/*">
         <span id="status">準備中... HIROマーカーを用意してね</span>
     </div>
@@ -97,7 +97,7 @@
     </div>
 
     <!-- ARシーン -->
-    <a-scene embedded arjs="debugUIEnabled: false; trackingMethod: best;">
+    <a-scene embedded arjs>
         <a-marker preset="hiro">
             <!--
                 立て表示：rotation="0 0 0" でマーカー平面に対して垂直（立体的）に表示
@@ -165,7 +165,7 @@
                         shader: 'flat',
                         side: 'double'
                     });
-                    status.innerText = "完了！HIROマーカーにかざしてね ?";
+                    status.innerText = "完了！HIROマーカーにかざしてね ✨";
                 };
                 img.src = event.target.result;
             };
@@ -228,7 +228,7 @@
 
         function changeHeight(delta) {
             pos.y += delta;
-            pos.y = Math.max(0, Math.min(3, pos.y)); // 0?3の範囲に制限
+            pos.y = Math.max(0, Math.min(3, pos.y)); // 0〜3の範囲に制限
             plane.setAttribute('position', `${pos.x} ${pos.y} ${pos.z}`);
         }
 
