@@ -1,114 +1,85 @@
 ﻿<!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta charset="utf-8">
-    <title>WebAR Hiro-Rakugaki v1.1.0</title>
-    <!-- MindARとA-Frameの最新ライブラリ [6, 7] -->
+    <title>WebAR Transparent Upload v1.1.1</title>
     <script src="https://aframe.io/releases/1.4.1/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.1/dist/mindar-image-aframe.prod.js"></script>
     
     <style>
-        body { margin: 0; overflow: hidden; touch-action: none; }
-        #ui-panel {
+        body { margin: 0; overflow: hidden; }
+        #ui {
             position: fixed; top: 10px; left: 10px; z-index: 1000;
-            background: rgba(0,0,0,0.7); color: white; padding: 10px;
-            border-radius: 5px; font-family: sans-serif; font-size: 12px; pointer-events: none;
+            background: rgba(0,0,0,0.7); color: white; padding: 15px;
+            border-radius: 10px; font-family: sans-serif;
         }
-        #version-tag { color: #00ffff; font-weight: bold; }
-        /* コントローラーの白い丸 */
-        #joystick-base {
-            position: fixed; bottom: 40px; left: 40px; width: 100px; height: 100px;
-            background: rgba(255, 255, 255, 0.3); border-radius: 50%; z-index: 2000;
-        }
-        #joystick-knob {
-            position: absolute; top: 25px; left: 25px; width: 50px; height: 50px;
-            background: white; border-radius: 50%; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-        }
+        input[type="file"] { margin-top: 10px; display: block; }
     </style>
-
-    <script>
-        let planeEl = null;
-        let isDragging = false;
-        let startX, startY;
-        let currentPos = { x: 0, y: 0.1, z: 0.1 };
-
-        AFRAME.registerComponent('rakugaki-logic', {
-            init: function () {
-                planeEl = this.el;
-                const sceneEl = this.el.sceneEl;
-                let isCaptured = false;
-
-                sceneEl.addEventListener("targetFound", () => {
-                    if (isCaptured) return;
-                    const video = document.querySelector("video");
-                    const canvas = document.createElement("canvas");
-                    canvas.width = 512; canvas.height = 512;
-                    const ctx = canvas.getContext("2d");
-
-                    setTimeout(() => {
-                        // カメラ映像の中央（マーカー内の絵）をキャプチャ
-                        ctx.drawImage(video, video.videoWidth/4, video.videoHeight/4, video.videoWidth/2, video.videoHeight/2, 0, 0, 512, 512);
-                        
-                        // 色をくっきりさせ、透過させない設定 [5]
-                        planeEl.setAttribute('material', { 
-                            src: canvas, color: '#FFFFFF', shader: 'flat', transparent: false, opacity: 1.0 
-                        });
-                        
-                        isCaptured = true;
-                        planeEl.emit('start-rising');
-                        document.getElementById('status-log').innerText = "ステータス: 成功！自由に動かしてね";
-                    }, 500); 
-                });
-            }
-        });
-
-        // コントローラー操作
-        window.onload = () => {
-            const knob = document.getElementById('joystick-knob');
-            window.addEventListener('touchstart', (e) => {
-                if (e.target.id === 'joystick-knob') { isDragging = true; startX = e.touches.clientX; startY = e.touches.clientY; }
-            });
-            window.addEventListener('touchmove', (e) => {
-                if (!isDragging || !planeEl) return;
-                const dx = (e.touches.clientX - startX) * 0.005;
-                const dy = (e.touches.clientY - startY) * 0.005;
-                knob.style.transform = `translate(${Math.max(-25, Math.min(25, e.touches.clientX - startX))}px, ${Math.max(-25, Math.min(25, e.touches.clientY - startY))}px)`;
-                currentPos.x += dx; currentPos.z += dy;
-                planeEl.setAttribute('position', `${currentPos.x} ${currentPos.y} ${currentPos.z}`);
-                startX = e.touches.clientX; startY = e.touches.clientY;
-            });
-            window.addEventListener('touchend', () => { isDragging = false; knob.style.transform = `translate(0px, 0px)`; });
-        };
-    </script>
 </head>
 <body>
-    <div id="ui-panel">
-        <div id="version-tag">HIRO-STYLE VERSION: v1.1.0</div>
-        <div id="status-log">ステータス: ヒロマーカーを待っています...</div>
+    <div id="ui">
+        <b>えをえらんでね！</b>
+        <input type="file" id="image-upload" accept="image/*">
+        <div id="status" style="font-size: 11px; margin-top:5px;">ヒロマーカーにかざしてね</div>
     </div>
-    <div id="joystick-base"><div id="joystick-knob"></div></div>
 
-    <!-- sRGBとrendererの設定で発色を改善 [5] -->
-    <a-scene 
-      mindar-image="imageTargetSrc: ./hiro.mind; filterMinCF:0.0001; filterBeta:0.001;" 
-      vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false"
-      color-space="sRGB" renderer="colorManagement: true, physicallyCorrectLights">
+    <a-scene mindar-image="imageTargetSrc: ./hiro.mind;" vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false" color-space="sRGB" renderer="colorManagement: true">
+        <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-      <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
-
-      <a-entity mindar-image-target="targetIndex: 0">
-        <!-- 
-          rotation: 90 0 0 に固定し、アニメーションで立ち上がる演出
-          立ち上がる方向が逆の場合は to: -90 0 0 に変更してください
-        -->
-        <a-plane id="rakugaki-plane" rakugaki-logic
-                 position="0 0.1 0.1" width="1" height="1" 
-                 material="transparent: false; opacity: 0"
-                 animation__rise="property: rotation; from: 0 0 0; to: 90 0 0; dur: 1000; easing: easeOutBack; startEvents: start-rising"
-                 animation__float="property: position; to: 0 0.15 0.15; dur: 2000; easing: easeInOutQuad; loop: true; dir: alternate; startEvents: animationcomplete__rise">
-        </a-plane>
-      </a-entity>
+        <a-entity mindar-image-target="targetIndex: 0">
+            <!-- 透過した絵を表示する板 -->
+            <a-plane id="rakugaki-plane" position="0 0.1 0.1" width="1" height="1" 
+                     material="transparent: true; shader: flat; side: double; opacity: 0"
+                     animation__rise="property: rotation; from: 0 0 0; to: 90 0 0; dur: 1000; easing: easeOutBack; startEvents: start-rising">
+            </a-plane>
+        </a-entity>
     </a-scene>
+
+    <script>
+        const fileInput = document.getElementById('image-upload');
+        const plane = document.getElementById('rakugaki-plane');
+        const status = document.getElementById('status');
+
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files;
+            if (!file) return;
+
+            status.innerText = "とうめいに しています...";
+            const reader = new FileReader();
+            
+            reader.onload = function(event) {
+                const img = new Image();
+                img.onload = function() {
+                    // 背景透過処理用のキャンバス
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+
+                    // ピクセル単位で白っぽい部分を透明にする
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const data = imageData.data;
+                    for (let i = 0; i < data.length; i += 4) {
+                        const r = data[i], g = data[i+1], b = data[i+2];
+                        // RGBがすべて200以上（白に近い色）なら透明にする
+                        if (r > 200 && g > 200 && b > 200) {
+                            data[i + 3] = 0; // アルファ値を0にする
+                        }
+                    }
+                    ctx.putImageData(imageData, 0, 0);
+
+                    // ARの板にテクスチャとしてセット
+                    plane.setAttribute('material', 'src', canvas);
+                    plane.setAttribute('material', 'opacity', 1);
+                    plane.emit('start-rising'); // 立ち上がるアニメーション開始
+                    status.innerText = "かんりょう！マーカーにかざしてね";
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+    </script>
 </body>
 </html>
