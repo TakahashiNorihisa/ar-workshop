@@ -1,82 +1,87 @@
 ﻿<!DOCTYPE html>
 <html lang="ja">
-  <head>
+<head>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta charset="utf-8">
-    <!-- OSSライブラリの読み込み: A-Frame と MindAR [5, 6] -->
+    <title>WebAR Rakugaki Test v1.0.5</title>
+    <!-- A-FrameとMindARの読み込み [1, 4] -->
     <script src="https://aframe.io/releases/1.4.1/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.1/dist/mindar-image-aframe.prod.js"></script>
     
     <script>
-      // 描いた絵をキャプチャしてテクスチャにするコンポーネント
-      AFRAME.registerComponent('rakugaki-capture', {
-        init: function () {
-          const el = this.el; // a-plane要素
-          const sceneEl = this.el.sceneEl;
-
-          // マーカーを認識した（targetFound）時のイベント処理 [7]
-          sceneEl.addEventListener("targetFound", (event) => {
-            console.log("マーカーを認識しました。絵を取り込みます。");
-            
-            // MindARが生成したビデオ要素を取得
-            const video = document.querySelector("video");
-            if (!video) return;
-
-            // キャプチャ用のCanvasを作成 [8]
-            const canvas = document.createElement("canvas");
-            canvas.width = 512;
-            canvas.height = 512;
-            const ctx = canvas.getContext("2d");
-
-            // カメラ映像のピントが合うのをわずかに待ってから取り込む
-            setTimeout(() => {
-              // ビデオ映像の中央部分（絵が描いてある範囲）をキャンバスにコピー
-              // 注意: ここでは中央を四角く切り取っています
-              ctx.drawImage(video, video.videoWidth/4, video.videoHeight/4, video.videoWidth/2, video.videoHeight/2, 0, 0, 512, 512);
-              
-              // A-Frameのplaneにテクスチャとして反映
-              // colorを白(#FFF)に指定し、shaderをflatにすることで絵を明るく見せます [8]
-              el.setAttribute('material', {
-                src: canvas,
-                color: '#FFFFFF',
-                shader: 'flat',
-                transparent: true,
-                opacity: 0.9
-              });
-              
-              // 取り込み完了後にアニメーションを開始させるためのイベントを発火
-              el.emit('start-rising');
-            }, 300); 
-          });
-
-          // マーカーを見失った（targetLost）時にリセットしたい場合はここに記述
-          sceneEl.addEventListener("targetLost", () => {
-            console.log("マーカーを見失いました");
-          });
+        // バージョン情報とログを画面に表示する関数
+        function updateStatus(msg) {
+            const statusEl = document.getElementById('status-log');
+            if (statusEl) statusEl.innerText = msg;
         }
-      });
+
+        AFRAME.registerComponent('rakugaki-capture', {
+            init: function () {
+                const el = this.el;
+                const sceneEl = this.el.sceneEl;
+
+                // マーカーが見つかった時の処理 [5, 6]
+                sceneEl.addEventListener("targetFound", (event) => {
+                    updateStatus("ステータス: マーカー検知！取り込み中...");
+                    
+                    const video = document.querySelector("video");
+                    if (!video) return;
+
+                    // キャプチャ用Canvas [3]
+                    const canvas = document.createElement("canvas");
+                    canvas.width = 512;
+                    canvas.height = 512;
+                    const ctx = canvas.getContext("2d");
+
+                    // 認識直後のブレを防ぐため少し待機
+                    setTimeout(() => {
+                        // カメラ映像をCanvasにコピー
+                        ctx.drawImage(video, video.videoWidth/4, video.videoHeight/4, video.videoWidth/2, video.videoHeight/2, 0, 0, 512, 512);
+                        
+                        // 板（Plane）にテクスチャとして反映 [3]
+                        el.setAttribute('material', {
+                            src: canvas,
+                            color: '#FFFFFF',
+                            shader: 'flat',
+                            transparent: true,
+                            opacity: 1.0
+                        });
+                        
+                        updateStatus("ステータス: 取り込み完了！浮き上がります");
+                        el.emit('start-rising');
+                    }, 500); 
+                });
+
+                sceneEl.addEventListener("targetLost", () => {
+                    updateStatus("ステータス: マーカーを探しています...");
+                });
+            }
+        });
     </script>
 
     <style>
-      body { margin: 0; overflow: hidden; }
-      #ui {
-        position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
-        z-index: 1000; background: rgba(255,255,255,0.8);
-        padding: 10px; border-radius: 20px; font-family: sans-serif;
-        pointer-events: none; border: 2px solid #333;
-      }
+        body { margin: 0; overflow: hidden; }
+        /* 画面上部の情報表示エリア */
+        #ui-panel {
+            position: fixed; top: 10px; left: 10px;
+            z-index: 1000; background: rgba(0,0,0,0.7);
+            color: white; padding: 10px; border-radius: 5px;
+            font-family: monospace; font-size: 12px; pointer-events: none;
+        }
+        #version-tag { color: #00ff00; font-weight: bold; margin-bottom: 5px; }
     </style>
-  </head>
+</head>
 
-  <body>
-    <div id="ui">わくのなかに 絵をかいて 写してね！</div>
+<body>
+    <div id="ui-panel">
+        <div id="version-tag">TEST VERSION: v1.0.5</div>
+        <div id="status-log">ステータス: 準備中...</div>
+        <div style="margin-top:5px; font-size:10px;">※画面にこれが見えていれば最新版です</div>
+    </div>
 
-    <!-- 
-      imageTargetSrc: 自分の .mind ファイル名に書き換えてください
-      color-space, renderer: 3D描画を綺麗にする設定 [6]
-    -->
+    <!-- マーカー設定 [1, 2] -->
     <a-scene 
-      mindar-image="imageTargetSrc: ./targets.mind; filterMinCF:0.001; filterBeta:0.01;" 
+      mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; uiLoading: no; uiError: no; uiScanning: yes;" 
       vr-mode-ui="enabled: false" 
       device-orientation-permission-ui="enabled: false"
       color-space="sRGB" 
@@ -84,15 +89,8 @@
 
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-      <!-- マーカーを検知した時に表示されるエンティティ [9] -->
       <a-entity mindar-image-target="targetIndex: 0">
-        
-        <!-- 
-          a-plane: らくがきが表示される板
-          rakugaki-capture: 上記で定義したキャプチャ機能を適用
-          animation__rise: 認識した瞬間、紙から垂直に立ち上がる動き
-          animation__float: 立ち上がった後、ふわふわ上下に浮き続ける動き
-        -->
+        <!-- アニメーション付きの板 [1, 7] -->
         <a-plane 
           id="rakugaki-plane"
           rakugaki-capture
@@ -102,8 +100,7 @@
           animation__rise="property: rotation; from: 0 0 0; to: -90 0 0; dur: 800; easing: easeOutBack; startEvents: start-rising"
           animation__float="property: position; to: 0 0.2 0; dur: 1500; easing: easeInOutQuad; loop: true; dir: alternate; startEvents: animationcomplete__rise">
         </a-plane>
-
       </a-entity>
     </a-scene>
-  </body>
+</body>
 </html>
