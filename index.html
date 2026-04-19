@@ -54,7 +54,7 @@
                 if (!files || files.length === 0) return;
                 
                 // 【重要】 を付けて Blob（ファイル実体）を確実に取得
-                const targetFile = files; 
+                const targetFile = files[0]; 
                 status.innerText = "ステータス: 透過処理中...";
 
                 const reader = new FileReader();
