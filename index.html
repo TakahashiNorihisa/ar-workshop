@@ -1,11 +1,12 @@
 ﻿<!DOCTYPE html>
-<html lang="ja">
+<html>
 <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
     <meta charset="utf-8">
-    <title>WebAR Rakugaki Fix v1.1.6</title>
-    <script src="https://aframe.io/releases/1.4.1/aframe.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.1/dist/mindar-image-aframe.prod.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1, width=device-width">
+    <title>Rakugaki AR.js v1.1.8</title>
+    <!-- AR.jsとA-Frameのライブラリ [3, 4] -->
+    <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
+    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
     
     <style>
         body { margin: 0; overflow: hidden; touch-action: none; }
@@ -14,9 +15,9 @@
             background: rgba(0,0,0,0.8); color: white; padding: 12px;
             border-radius: 10px; font-family: sans-serif; font-size: 12px;
         }
-        #version-tag { color: #ffcc00; font-weight: bold; }
+        #version-tag { color: #00ff00; font-weight: bold; }
         
-        /* コントローラーの改善：アニメーション効果を追加 */
+        /* スムーズに動くジョイスティックUI */
         #joystick-base {
             position: fixed; bottom: 40px; left: 40px; width: 100px; height: 100px;
             background: rgba(255, 255, 255, 0.2); border-radius: 50%; z-index: 2000;
@@ -25,7 +26,7 @@
         #joystick-knob {
             position: absolute; top: 25px; left: 25px; width: 50px; height: 50px;
             background: #ffffff; border-radius: 50%; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-            transition: transform 0.1s ease-out; /* 指を離した時に滑らかに戻る */
+            transition: transform 0.1s ease-out; /* スムーズな戻り */
         }
     </style>
 
@@ -33,27 +34,20 @@
         let planeEl = null;
         let isDragging = false;
         let startX, startY;
-        let currentPos = { x: 0, y: 0.1, z: 0.1 };
-
-        AFRAME.registerComponent('rakugaki-logic', {
-            init: function () {
-                planeEl = this.el;
-                document.getElementById('status').innerText = "ステータス: ヒロマーカーを待機中...";
-            }
-        });
+        let currentPos = { x: 0, y: 0.1, z: 0 };
 
         window.onload = () => {
             const fileInput = document.getElementById('image-upload');
             const status = document.getElementById('status');
             const knob = document.getElementById('joystick-knob');
+            planeEl = document.getElementById('rakugaki-plane');
 
-            // 根本的な解決：ファイル取得の修正
+            // 【根本解決】ファイル読み込みエラーの修正
             fileInput.addEventListener('change', function(e) {
-                e.stopImmediatePropagation(); // イベントの重複を防ぐ
                 const files = e.target.files;
                 if (!files || files.length === 0) return;
                 
-                // 【重要】 を付けて Blob（ファイル実体）を確実に取得
+                // files とすることで、リストから「ファイル実体」を確実に取り出す
                 const targetFile = files[0]; 
                 status.innerText = "ステータス: 透過処理中...";
 
@@ -66,31 +60,35 @@
                         const ctx = canvas.getContext('2d');
                         ctx.drawImage(img, 0, 0, 512, 512);
 
-                        // 透過処理（白を透明に）
+                        // 背景透過処理（白を透明に）
                         const imageData = ctx.getImageData(0, 0, 512, 512);
                         const data = imageData.data;
                         for (let i = 0; i < data.length; i += 4) {
+                            // RGB > 200の部分（白い紙の部分）を透明にする
                             if (data[i] > 200 && data[i+1] > 200 && data[i+2] > 200) { data[i+3] = 0; }
                         }
                         ctx.putImageData(imageData, 0, 0);
 
-                        if (planeEl) {
-                            planeEl.setAttribute('material', { src: canvas, transparent: true, shader: 'flat', opacity: 1.0 });
-                            planeEl.emit('start-rising');
-                            status.innerText = "ステータス: 完了！自由に動かしてね";
-                        }
+                        // ARの板に反映
+                        planeEl.setAttribute('material', {
+                            src: canvas,
+                            transparent: true,
+                            shader: 'flat',
+                            opacity: 1.0
+                        });
+                        status.innerText = "ステータス: 完了！かざして動かしてね";
                     };
                     img.src = event.target.result;
                 };
-                reader.readAsDataURL(targetFile); // リストではなくFileオブジェクトを渡す
+                reader.readAsDataURL(targetFile); // 正しいBlobデータを渡す
             });
 
-            // ジョイスティック移動の滑らかさ改善
+            // コントローラー操作：アニメーションのように滑らかに連動
             knob.addEventListener('touchstart', (e) => {
                 isDragging = true;
                 startX = e.touches.clientX;
                 startY = e.touches.clientY;
-                knob.style.transition = "none"; // ドラッグ中はアニメーションをオフにして追従性を高める
+                knob.style.transition = "none"; 
             });
 
             window.addEventListener('touchmove', (e) => {
@@ -99,12 +97,12 @@
                 const moveX = e.touches.clientX;
                 const moveY = e.touches.clientY;
 
-                // ジョイスティックの視覚的移動
+                // スティックの見た目を動かす
                 const visualX = Math.max(-30, Math.min(30, moveX - startX));
                 const visualY = Math.max(-30, Math.min(30, moveY - startY));
                 knob.style.transform = `translate(${visualX}px, ${visualY}px)`;
 
-                // AR画像の座標移動（感度を調整）
+                // AR画像の座標をリアルタイムで「アニメーションのように」移動
                 currentPos.x += (moveX - startX) * 0.005;
                 currentPos.z += (moveY - startY) * 0.005;
                 planeEl.setAttribute('position', `${currentPos.x} ${currentPos.y} ${currentPos.z}`);
@@ -115,38 +113,41 @@
 
             window.addEventListener('touchend', () => {
                 isDragging = false;
-                knob.style.transition = "transform 0.2s ease-out"; // 滑らかに戻る
+                knob.style.transition = "transform 0.2s ease-out";
                 knob.style.transform = `translate(0px, 0px)`;
             });
         };
     </script>
 </head>
-<body>
+
+<body style="margin:0px; overflow:hidden;">
     <div id="ui-panel">
-        <div id="version-tag">FINAL BUGFIX: v1.1.6</div>
+        <div id="version-tag">AR.js VERSION: v1.1.8</div>
         <b>えをえらんでね！</b>
         <input type="file" id="image-upload" accept="image/*">
-        <div id="status" style="margin-top:8px;">準備中...</div>
+        <div id="status" style="margin-top:5px;">準備中...</div>
     </div>
 
     <div id="joystick-base">
         <div id="joystick-knob"></div>
     </div>
 
-    <a-scene mindar-image="imageTargetSrc: ./hiro.mind;" vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false" color-space="sRGB" renderer="colorManagement: true">
-        <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
-
-        <a-entity mindar-image-target="targetIndex: 0">
+    <!-- AR.js のシーン設定 [4] -->
+    <a-scene embedded arjs="debugUIEnabled: false; trackingMethod: best;">
+        <!-- ヒロマーカーのプリセット [1, 2] -->
+        <a-marker preset="hiro">
             <!-- 
-              rotation: 自分の方に立ち上がらない（逆になる）場合は、
-              to: 90 0 0 を to: -90 0 0 に書き換えてみてください。
+                初期は透明(opacity:0)にしておき、画像読み込み後に表示 
+                rotation="-90 0 0" でマーカーの上に水平に配置
             -->
-            <a-plane id="rakugaki-plane" rakugaki-logic
-                     position="0 0.1 0.1" width="1" height="1" 
-                     material="transparent: true; opacity: 0; side: double"
-                     animation__rise="property: rotation; from: 0 0 0; to: 90 0 0; dur: 1000; easing: easeOutBack; startEvents: start-rising">
+            <a-plane id="rakugaki-plane" 
+                     position="0 0.1 0" 
+                     rotation="-90 0 0" 
+                     width="1" height="1" 
+                     material="transparent: true; opacity: 0; side: double">
             </a-plane>
-        </a-entity>
+        </a-marker>
+        <a-entity camera></a-entity>
     </a-scene>
 </body>
 </html>
