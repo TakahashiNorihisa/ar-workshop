@@ -3,28 +3,27 @@
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
     <meta charset="utf-8">
-    <title>WebAR Rakugaki Controller v1.0.8</title>
+    <title>WebAR Hiro-Rakugaki v1.1.0</title>
+    <!-- MindARとA-Frameの最新ライブラリ [6, 7] -->
     <script src="https://aframe.io/releases/1.4.1/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.1/dist/mindar-image-aframe.prod.js"></script>
     
     <style>
         body { margin: 0; overflow: hidden; touch-action: none; }
-        /* 情報表示パネル */
         #ui-panel {
             position: fixed; top: 10px; left: 10px; z-index: 1000;
-            background: rgba(0,0,0,0.7); color: white; padding: 8px;
-            border-radius: 5px; font-family: sans-serif; font-size: 11px; pointer-events: none;
+            background: rgba(0,0,0,0.7); color: white; padding: 10px;
+            border-radius: 5px; font-family: sans-serif; font-size: 12px; pointer-events: none;
         }
-        /* コントローラーの土台 */
+        #version-tag { color: #00ffff; font-weight: bold; }
+        /* コントローラーの白い丸 */
         #joystick-base {
             position: fixed; bottom: 40px; left: 40px; width: 100px; height: 100px;
             background: rgba(255, 255, 255, 0.3); border-radius: 50%; z-index: 2000;
         }
-        /* 動かす白い丸（コントローラー） */
         #joystick-knob {
             position: absolute; top: 25px; left: 25px; width: 50px; height: 50px;
             background: white; border-radius: 50%; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-            touch-action: none;
         }
     </style>
 
@@ -32,93 +31,84 @@
         let planeEl = null;
         let isDragging = false;
         let startX, startY;
-        let currentPos = { x: 0, y: 0.1, z: 0.1 }; // 初期位置
+        let currentPos = { x: 0, y: 0.1, z: 0.1 };
 
-        AFRAME.registerComponent('rakugaki-capture', {
+        AFRAME.registerComponent('rakugaki-logic', {
             init: function () {
                 planeEl = this.el;
                 const sceneEl = this.el.sceneEl;
+                let isCaptured = false;
 
                 sceneEl.addEventListener("targetFound", () => {
+                    if (isCaptured) return;
                     const video = document.querySelector("video");
-                    if (!video) return;
                     const canvas = document.createElement("canvas");
                     canvas.width = 512; canvas.height = 512;
                     const ctx = canvas.getContext("2d");
 
                     setTimeout(() => {
-                        ctx.drawImage(video, video.videoWidth/6, video.videoHeight/6, video.videoWidth*2/3, video.videoHeight*2/3, 0, 0, 512, 512);
-                        planeEl.setAttribute('material', { src: canvas, color: '#FFFFFF', shader: 'flat', transparent: false, opacity: 1.0 });
+                        // カメラ映像の中央（マーカー内の絵）をキャプチャ
+                        ctx.drawImage(video, video.videoWidth/4, video.videoHeight/4, video.videoWidth/2, video.videoHeight/2, 0, 0, 512, 512);
+                        
+                        // 色をくっきりさせ、透過させない設定 [5]
+                        planeEl.setAttribute('material', { 
+                            src: canvas, color: '#FFFFFF', shader: 'flat', transparent: false, opacity: 1.0 
+                        });
+                        
+                        isCaptured = true;
                         planeEl.emit('start-rising');
-                        document.getElementById('status-log').innerText = "ステータス: コントローラーで動かせるよ！";
+                        document.getElementById('status-log').innerText = "ステータス: 成功！自由に動かしてね";
                     }, 500); 
                 });
             }
         });
 
-        // コントローラーの操作処理
+        // コントローラー操作
         window.onload = () => {
             const knob = document.getElementById('joystick-knob');
-            const base = document.getElementById('joystick-base');
-
-            knob.addEventListener('touchstart', (e) => {
-                isDragging = true;
-                startX = e.touches.clientX;
-                startY = e.touches.clientY;
+            window.addEventListener('touchstart', (e) => {
+                if (e.target.id === 'joystick-knob') { isDragging = true; startX = e.touches.clientX; startY = e.touches.clientY; }
             });
-
             window.addEventListener('touchmove', (e) => {
                 if (!isDragging || !planeEl) return;
-
-                const deltaX = (e.touches.clientX - startX) * 0.005; // 移動感度
-                const deltaY = (e.touches.clientY - startY) * 0.005;
-
-                // ジョイスティックの見た目を動かす
-                const visualX = Math.max(-25, Math.min(25, e.touches.clientX - startX));
-                const visualY = Math.max(-25, Math.min(25, e.touches.clientY - startY));
-                knob.style.transform = `translate(${visualX}px, ${visualY}px)`;
-
-                // AR画像の座標を更新
-                currentPos.x += deltaX;
-                currentPos.z += deltaY; // Y軸のドラッグをARの奥行き(Z)または高さに変換
+                const dx = (e.touches.clientX - startX) * 0.005;
+                const dy = (e.touches.clientY - startY) * 0.005;
+                knob.style.transform = `translate(${Math.max(-25, Math.min(25, e.touches.clientX - startX))}px, ${Math.max(-25, Math.min(25, e.touches.clientY - startY))}px)`;
+                currentPos.x += dx; currentPos.z += dy;
                 planeEl.setAttribute('position', `${currentPos.x} ${currentPos.y} ${currentPos.z}`);
-                
-                // 開始位置を更新して連続的に動かす
-                startX = e.touches.clientX;
-                startY = e.touches.clientY;
+                startX = e.touches.clientX; startY = e.touches.clientY;
             });
-
-            window.addEventListener('touchend', () => {
-                isDragging = false;
-                knob.style.transform = `translate(0px, 0px)`; // 中央に戻す
-            });
+            window.addEventListener('touchend', () => { isDragging = false; knob.style.transform = `translate(0px, 0px)`; });
         };
     </script>
 </head>
 <body>
     <div id="ui-panel">
-        <div style="color: #00ff00; font-weight: bold;">VERSION: v1.0.8</div>
-        <div id="status-log">ステータス: 準備中...</div>
+        <div id="version-tag">HIRO-STYLE VERSION: v1.1.0</div>
+        <div id="status-log">ステータス: ヒロマーカーを待っています...</div>
     </div>
+    <div id="joystick-base"><div id="joystick-knob"></div></div>
 
-    <!-- コントローラーUI -->
-    <div id="joystick-base">
-        <div id="joystick-knob"></div>
-    </div>
+    <!-- sRGBとrendererの設定で発色を改善 [5] -->
+    <a-scene 
+      mindar-image="imageTargetSrc: ./hiro.mind; filterMinCF:0.0001; filterBeta:0.001;" 
+      vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false"
+      color-space="sRGB" renderer="colorManagement: true, physicallyCorrectLights">
 
-    <a-scene mindar-image="imageTargetSrc: ./targets.mind; filterMinCF:0.0001; filterBeta:0.001;" 
-             vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false"
-             color-space="sRGB" renderer="colorManagement: true">
+      <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-        <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
-
-        <a-entity mindar-image-target="targetIndex: 0">
-            <a-plane id="rakugaki-plane" rakugaki-capture
-                     position="0 0.1 0.1" width="1" height="1" 
-                     material="transparent: false; opacity: 0"
-                     animation__rise="property: rotation; from: 0 0 0; to: 90 0 0; dur: 1000; easing: easeOutBack; startEvents: start-rising">
-            </a-plane>
-        </a-entity>
+      <a-entity mindar-image-target="targetIndex: 0">
+        <!-- 
+          rotation: 90 0 0 に固定し、アニメーションで立ち上がる演出
+          立ち上がる方向が逆の場合は to: -90 0 0 に変更してください
+        -->
+        <a-plane id="rakugaki-plane" rakugaki-logic
+                 position="0 0.1 0.1" width="1" height="1" 
+                 material="transparent: false; opacity: 0"
+                 animation__rise="property: rotation; from: 0 0 0; to: 90 0 0; dur: 1000; easing: easeOutBack; startEvents: start-rising"
+                 animation__float="property: position; to: 0 0.15 0.15; dur: 2000; easing: easeInOutQuad; loop: true; dir: alternate; startEvents: animationcomplete__rise">
+        </a-plane>
+      </a-entity>
     </a-scene>
 </body>
 </html>
