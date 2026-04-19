@@ -3,13 +3,11 @@
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta charset="utf-8">
-    <title>WebAR Rakugaki Test v1.0.5</title>
-    <!-- A-FrameとMindARの読み込み [1, 4] -->
+    <title>WebAR Rakugaki Test v1.0.6</title>
     <script src="https://aframe.io/releases/1.4.1/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.1/dist/mindar-image-aframe.prod.js"></script>
     
     <script>
-        // バージョン情報とログを画面に表示する関数
         function updateStatus(msg) {
             const statusEl = document.getElementById('status-log');
             if (statusEl) statusEl.innerText = msg;
@@ -20,36 +18,31 @@
                 const el = this.el;
                 const sceneEl = this.el.sceneEl;
 
-                // マーカーが見つかった時の処理 [5, 6]
                 sceneEl.addEventListener("targetFound", (event) => {
-                    updateStatus("ステータス: マーカー検知！取り込み中...");
-                    
+                    updateStatus("ステータス: 絵をくっきり取り込み中...");
                     const video = document.querySelector("video");
                     if (!video) return;
 
-                    // キャプチャ用Canvas [3]
                     const canvas = document.createElement("canvas");
                     canvas.width = 512;
                     canvas.height = 512;
                     const ctx = canvas.getContext("2d");
 
-                    // 認識直後のブレを防ぐため少し待機
                     setTimeout(() => {
-                        // カメラ映像をCanvasにコピー
-                        ctx.drawImage(video, video.videoWidth/4, video.videoHeight/4, video.videoWidth/2, video.videoHeight/2, 0, 0, 512, 512);
+                        // キャプチャ範囲を調整（中央を少し広めに取り込み）
+                        ctx.drawImage(video, video.videoWidth/6, video.videoHeight/6, video.videoWidth*2/3, video.videoHeight*2/3, 0, 0, 512, 512);
                         
-                        // 板（Plane）にテクスチャとして反映 [3]
                         el.setAttribute('material', {
                             src: canvas,
                             color: '#FFFFFF',
                             shader: 'flat',
-                            transparent: true,
-                            opacity: 1.0
+                            transparent: false, // 薄さを解消するため透明度をオフに
+                            opacity: 1.0        // 完全に不透明に設定
                         });
                         
-                        updateStatus("ステータス: 取り込み完了！浮き上がります");
+                        updateStatus("ステータス: 成功！正しく浮き上がります");
                         el.emit('start-rising');
-                    }, 500); 
+                    }, 400); 
                 });
 
                 sceneEl.addEventListener("targetLost", () => {
@@ -61,27 +54,25 @@
 
     <style>
         body { margin: 0; overflow: hidden; }
-        /* 画面上部の情報表示エリア */
         #ui-panel {
             position: fixed; top: 10px; left: 10px;
             z-index: 1000; background: rgba(0,0,0,0.7);
             color: white; padding: 10px; border-radius: 5px;
-            font-family: monospace; font-size: 12px; pointer-events: none;
+            font-family: sans-serif; font-size: 12px; pointer-events: none;
         }
-        #version-tag { color: #00ff00; font-weight: bold; margin-bottom: 5px; }
+        #version-tag { color: #00ff00; font-weight: bold; }
     </style>
 </head>
 
 <body>
     <div id="ui-panel">
-        <div id="version-tag">TEST VERSION: v1.0.5</div>
+        <div id="version-tag">TEST VERSION: v1.0.6</div>
         <div id="status-log">ステータス: 準備中...</div>
-        <div style="margin-top:5px; font-size:10px;">※画面にこれが見えていれば最新版です</div>
     </div>
 
-    <!-- マーカー設定 [1, 2] -->
+    <!-- sRGBとcolorManagementを追加して発色を改善 [1] -->
     <a-scene 
-      mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; uiLoading: no; uiError: no; uiScanning: yes;" 
+      mindar-image="imageTargetSrc: ./targets.mind; filterMinCF:0.001; filterBeta:0.01;" 
       vr-mode-ui="enabled: false" 
       device-orientation-permission-ui="enabled: false"
       color-space="sRGB" 
@@ -90,15 +81,18 @@
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
       <a-entity mindar-image-target="targetIndex: 0">
-        <!-- アニメーション付きの板 [1, 7] -->
+        <!-- 
+          rotation: 90 0 0 に変更して、手前側に立ち上がるように修正 [1]
+          material: transparent を一度 false にして「薄さ」を改善
+        -->
         <a-plane 
           id="rakugaki-plane"
           rakugaki-capture
           position="0 0 0" 
           width="1" height="1" 
-          material="transparent: true; opacity: 0"
-          animation__rise="property: rotation; from: 0 0 0; to: -90 0 0; dur: 800; easing: easeOutBack; startEvents: start-rising"
-          animation__float="property: position; to: 0 0.2 0; dur: 1500; easing: easeInOutQuad; loop: true; dir: alternate; startEvents: animationcomplete__rise">
+          material="transparent: false; opacity: 0"
+          animation__rise="property: rotation; from: 0 0 0; to: 90 0 0; dur: 800; easing: easeOutBack; startEvents: start-rising"
+          animation__float="property: position; to: 0 0.1 0.1; dur: 1500; easing: easeInOutQuad; loop: true; dir: alternate; startEvents: animationcomplete__rise">
         </a-plane>
       </a-entity>
     </a-scene>
