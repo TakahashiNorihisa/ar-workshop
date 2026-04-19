@@ -2,35 +2,49 @@
 <html>
   <head>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <!-- OSSライブラリの読み込み -->
     <script src="https://aframe.io/releases/1.4.1/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.1/dist/mindar-image-aframe.prod.js"></script>
+    <script>
+      AFRAME.registerComponent('capture-drawing', {
+        init: function () {
+          const sceneEl = this.el.sceneEl;
+          const plane = this.el;
+
+          // マーカーが見つかった時のイベント
+          this.el.addEventListener("targetFound", event => {
+            console.log("マーカーを発見！絵を取り込みます");
+            const video = document.querySelector("video");
+            const canvas = document.createElement("canvas");
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext("2d");
+
+            // カメラ映像の真ん中付近をキャプチャして板に貼る処理（簡易版）
+            // ※本来はマーカーの位置に合わせて切り抜く複雑な計算が必要ですが
+            //   ここではcanvasにビデオ映像をコピーしてテクスチャにします
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // A-Frameの板に、このcanvasを画像として設定
+            plane.setAttribute("src", canvas);
+          });
+        }
+      });
+    </script>
   </head>
   <body>
-    <!-- 
-      imageTargetSrc: 事前にコンパイルした.mindファイルを指定 
-      color-space, renderer: 描画を綺麗にする設定 [8]
-    -->
-    <a-scene 
-      mindar-image="imageTargetSrc: ./targets.mind;" 
-      vr-mode-ui="enabled: false" 
-      device-orientation-permission-ui="enabled: false"
-      color-space="sRGB" 
-      renderer="colorManagement: true, physicallyCorrectLights">
-
+    <a-scene mindar-image="imageTargetSrc: ./targets.mind;" vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false">
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-      <!-- マーカーを検知した時に表示される要素 -->
       <a-entity mindar-image-target="targetIndex: 0">
         <!-- 
-          a-plane: 絵を貼り付けるための薄い板 [3]
-          animation: 垂直に立ち上がり、上下に浮く演出
+          capture-drawing: 自作した取り込み機能を有効化
+          material="transparent: true": 白い部分を透明にするなどの工夫ができる設定
         -->
         <a-plane 
-          id="rakugaki-plane"
+          capture-drawing
           position="0 0 0" 
           width="1" height="1" 
-          material="transparent: true; opacity: 0.9"
+          material="shader: flat; transparent: true; opacity: 0.9"
           animation__rise="property: rotation; from: 0 0 0; to: -90 0 0; dur: 1000; easing: easeOutElastic"
           animation__float="property: position; to: 0 0.2 0; dur: 1500; easing: easeInOutQuad; loop: true; dir: alternate; startEvents: animationcomplete__rise">
         </a-plane>
