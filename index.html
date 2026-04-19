@@ -1,58 +1,109 @@
 ﻿<!DOCTYPE html>
-<html>
-<head>
+<html lang="ja">
+  <head>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta charset="utf-8">
+    <!-- OSSライブラリの読み込み: A-Frame と MindAR [5, 6] -->
     <script src="https://aframe.io/releases/1.4.1/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.1/dist/mindar-image-aframe.prod.js"></script>
+    
     <script>
-        AFRAME.registerComponent('drawing-capture', {
-            init: function () {
-                const planeEl = this.el;
-                
-                // マーカーが見つかった（targetFound）時の処理
-                this.el.addEventListener("targetFound", event => {
-                    const video = document.querySelector("video");
-                    if (!video) return;
+      // 描いた絵をキャプチャしてテクスチャにするコンポーネント
+      AFRAME.registerComponent('rakugaki-capture', {
+        init: function () {
+          const el = this.el; // a-plane要素
+          const sceneEl = this.el.sceneEl;
 
-                    // キャプチャ用の隠しキャンバスを作成
-                    const canvas = document.createElement("canvas");
-                    canvas.width = 512;
-                    canvas.height = 512;
-                    const ctx = canvas.getContext("2d");
+          // マーカーを認識した（targetFound）時のイベント処理 [7]
+          sceneEl.addEventListener("targetFound", (event) => {
+            console.log("マーカーを認識しました。絵を取り込みます。");
+            
+            // MindARが生成したビデオ要素を取得
+            const video = document.querySelector("video");
+            if (!video) return;
 
-                    // ビデオ映像の中央部分をキャンバスにコピー
-                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            // キャプチャ用のCanvasを作成 [8]
+            const canvas = document.createElement("canvas");
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext("2d");
 
-                    // A-Frameのplaneにキャンバスをテクスチャとしてセット
-                    // 以前のコードの「color="#FFFFFF"」を無効化するため、直接srcを更新します
-                    planeEl.setAttribute("material", "src", canvas);
-                    // 反映を確実にするため、透明度や色の影響をリセット
-                    planeEl.setAttribute("material", "color", "#FFF"); 
-                    planeEl.setAttribute("material", "transparent", "true");
-                });
-            }
-        });
+            // カメラ映像のピントが合うのをわずかに待ってから取り込む
+            setTimeout(() => {
+              // ビデオ映像の中央部分（絵が描いてある範囲）をキャンバスにコピー
+              // 注意: ここでは中央を四角く切り取っています
+              ctx.drawImage(video, video.videoWidth/4, video.videoHeight/4, video.videoWidth/2, video.videoHeight/2, 0, 0, 512, 512);
+              
+              // A-Frameのplaneにテクスチャとして反映
+              // colorを白(#FFF)に指定し、shaderをflatにすることで絵を明るく見せます [8]
+              el.setAttribute('material', {
+                src: canvas,
+                color: '#FFFFFF',
+                shader: 'flat',
+                transparent: true,
+                opacity: 0.9
+              });
+              
+              // 取り込み完了後にアニメーションを開始させるためのイベントを発火
+              el.emit('start-rising');
+            }, 300); 
+          });
+
+          // マーカーを見失った（targetLost）時にリセットしたい場合はここに記述
+          sceneEl.addEventListener("targetLost", () => {
+            console.log("マーカーを見失いました");
+          });
+        }
+      });
     </script>
-</head>
-<body>
-    <!-- mindar-imageのパスは適宜 targets.mind に書き換えてください -->
-    <a-scene mindar-image="imageTargetSrc: ./targets.mind;" vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false">
-        <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-        <a-entity mindar-image-target="targetIndex: 0">
-            <!-- 
-                color属性を削除し、drawing-captureコンポーネントで制御します
-                初期状態は透明（opacity: 0）にしておき、認識時に表示されるようにします
-            -->
-            <a-plane 
-                drawing-capture
-                position="0 0 0" 
-                width="1" height="1" 
-                material="shader: flat; opacity: 1"
-                animation__rise="property: rotation; from: 0 0 0; to: -90 0 0; dur: 1000; easing: easeOutElastic"
-                animation__float="property: position; to: 0 0.2 0; dur: 1500; easing: easeInOutQuad; loop: true; dir: alternate; startEvents: animationcomplete__rise">
-            </a-plane>
-        </a-entity>
+    <style>
+      body { margin: 0; overflow: hidden; }
+      #ui {
+        position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
+        z-index: 1000; background: rgba(255,255,255,0.8);
+        padding: 10px; border-radius: 20px; font-family: sans-serif;
+        pointer-events: none; border: 2px solid #333;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="ui">わくのなかに 絵をかいて 写してね！</div>
+
+    <!-- 
+      imageTargetSrc: 自分の .mind ファイル名に書き換えてください
+      color-space, renderer: 3D描画を綺麗にする設定 [6]
+    -->
+    <a-scene 
+      mindar-image="imageTargetSrc: ./targets.mind; filterMinCF:0.001; filterBeta:0.01;" 
+      vr-mode-ui="enabled: false" 
+      device-orientation-permission-ui="enabled: false"
+      color-space="sRGB" 
+      renderer="colorManagement: true, physicallyCorrectLights">
+
+      <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+
+      <!-- マーカーを検知した時に表示されるエンティティ [9] -->
+      <a-entity mindar-image-target="targetIndex: 0">
+        
+        <!-- 
+          a-plane: らくがきが表示される板
+          rakugaki-capture: 上記で定義したキャプチャ機能を適用
+          animation__rise: 認識した瞬間、紙から垂直に立ち上がる動き
+          animation__float: 立ち上がった後、ふわふわ上下に浮き続ける動き
+        -->
+        <a-plane 
+          id="rakugaki-plane"
+          rakugaki-capture
+          position="0 0 0" 
+          width="1" height="1" 
+          material="transparent: true; opacity: 0"
+          animation__rise="property: rotation; from: 0 0 0; to: -90 0 0; dur: 800; easing: easeOutBack; startEvents: start-rising"
+          animation__float="property: position; to: 0 0.2 0; dur: 1500; easing: easeInOutQuad; loop: true; dir: alternate; startEvents: animationcomplete__rise">
+        </a-plane>
+
+      </a-entity>
     </a-scene>
-</body>
+  </body>
 </html>
