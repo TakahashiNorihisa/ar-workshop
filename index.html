@@ -3,11 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>らくがきAR v5.0</title>
+  <title>らくがきAR v6.0</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { overflow: hidden; background: #000; font-family: sans-serif; touch-action: none; }
-
     #bg-video {
       position: fixed; inset: 0; width: 100%; height: 100%;
       object-fit: cover; z-index: 0;
@@ -16,8 +15,6 @@
       position: fixed; inset: 0; width: 100%; height: 100%;
       z-index: 1; pointer-events: none;
     }
-
-    /* UIパネル */
     #ui-panel {
       position: fixed; top: 10px; left: 10px; z-index: 100;
       background: rgba(0,0,0,0.78); color: #fff;
@@ -36,41 +33,32 @@
     .ui-btn.red { background: rgba(255,70,70,0.3); border-color: rgba(255,120,120,0.5); }
     #image-up { display: none; }
 
-    /* ─── フリーハンドトリミング画面 ─── */
+    /* トリミング画面 */
     #crop-screen {
       display: none; position: fixed; inset: 0; z-index: 300;
       background: #111; flex-direction: column;
     }
     #crop-screen.show { display: flex; }
-
     #crop-header {
-      background: rgba(0,0,0,0.8); color: #fff;
-      padding: 8px 12px; font-size: 12px; text-align: center;
-      flex-shrink: 0;
+      background: rgba(0,0,0,0.85); color: #fff;
+      padding: 8px 12px; font-size: 12px; text-align: center; flex-shrink: 0;
     }
-    #crop-header span { color: #0f0; }
-
+    #crop-header span { color: #0f0; font-weight: bold; }
     #crop-wrap {
       flex: 1; position: relative; overflow: hidden;
       display: flex; align-items: center; justify-content: center;
+      background: #222;
     }
-    /* 写真 + 描画を重ねる */
-    #photo-canvas,
-    #draw-canvas {
-      position: absolute;
-      max-width: 100%; max-height: 100%;
-      display: block;
+    #photo-canvas { display: block; touch-action: none; max-width: 100%; max-height: 100%; }
+    #draw-canvas  {
+      position: absolute; top: 0; left: 0;
+      touch-action: none; cursor: crosshair;
     }
-    #draw-canvas { touch-action: none; cursor: crosshair; }
-
     #crop-btns {
       display: flex; gap: 10px; padding: 10px 12px;
-      background: rgba(0,0,0,0.75); justify-content: center; flex-shrink: 0;
+      background: rgba(0,0,0,0.8); justify-content: center; flex-shrink: 0;
     }
-    .crop-btn {
-      padding: 10px 18px; border-radius: 8px; border: none;
-      font-size: 13px; font-weight: bold; cursor: pointer;
-    }
+    .crop-btn { padding: 10px 18px; border-radius: 8px; border: none; font-size: 13px; font-weight: bold; cursor: pointer; }
     #cb-cancel { background: #555; color: #fff; }
     #cb-reset  { background: #a60; color: #fff; }
     #cb-ok     { background: #4af; color: #000; }
@@ -114,7 +102,7 @@
 <canvas id="three-canvas"></canvas>
 
 <div id="ui-panel">
-  <b>🎨 らくがきAR</b><span id="ver">v5.0</span>
+  <b>🎨 らくがきAR</b><span id="ver">v6.0</span>
   <div class="btn-row">
     <div class="ui-btn" id="btn-camera">📷 撮影</div>
     <div class="ui-btn" id="btn-upload">🖼️ 選択</div>
@@ -124,10 +112,9 @@
   <span id="status">画像をアップロードか撮影してね</span>
 </div>
 
-<!-- フリーハンドトリミング画面 -->
 <div id="crop-screen">
   <div id="crop-header">
-    <span>指でなぞって</span>絵の輪郭を囲んでね。囲み終わったら「決定」を押して。
+    <span>指でなぞって</span>絵の輪郭を囲んでね。外側は自動で透明になります。
   </div>
   <div id="crop-wrap">
     <canvas id="photo-canvas"></canvas>
@@ -150,37 +137,45 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-// ════════════════════════════════════════════
+'use strict';
+
+// ═══════════════════════════════════════════
 //  カメラ映像
-// ════════════════════════════════════════════
+// ═══════════════════════════════════════════
 const bgVideo  = document.getElementById('bg-video');
 const statusEl = document.getElementById('status');
 navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal:'environment' } }, audio:false })
-  .then(s => bgVideo.srcObject = s)
-  .catch(() => statusEl.innerText = 'カメラが使えません');
+  .then(s => { bgVideo.srcObject = s; })
+  .catch(() => { statusEl.innerText = 'カメラが使えません'; });
 
-// ════════════════════════════════════════════
+// ═══════════════════════════════════════════
 //  Three.js
-//  ちらつき対策：
-//    - renderer.autoClear = false で毎フレームの自動クリアを切る
-//    - 前面テクスチャに polygonOffset を設定して z-fighting を防ぐ
-//    - renderOrder で描画順を制御
-// ════════════════════════════════════════════
-const canvas3  = document.getElementById('three-canvas');
-const renderer = new THREE.WebGLRenderer({ canvas: canvas3, alpha: true, antialias: true });
+//
+//  【立てる仕組み・確定版】
+//  - カメラは Z+ 側に置き、-Z方向を向く（lookAt 原点）
+//  - PlaneGeometry は法線が +Z → カメラ正面を向く = 「立っている」
+//  - rotation.x = -PI/2 は「寝かせる」なので絶対に使わない
+//  - ExtrudeGeometry は Z方向に押し出す → 板の厚みがZ軸方向に出る
+//    → カメラ方向と同軸なので横から見ると厚みが見える
+//
+//  【ちらつき防止】
+//  - depthTest:false + renderOrder でテクスチャを常に前面描画
+// ═══════════════════════════════════════════
+const c3 = document.getElementById('three-canvas');
+const renderer = new THREE.WebGLRenderer({ canvas: c3, alpha: true, antialias: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.sortObjects = true;
 
 const scene = new THREE.Scene();
-const cam   = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.01, 100);
-cam.position.set(0, 0.5, 5);
+const cam = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 200);
+// カメラをZ=6に置いて原点を向く → PlaneはXY平面上で「正面を向いて立っている」
+cam.position.set(0, 0, 6);
 cam.lookAt(0, 0, 0);
 
-scene.add(new THREE.AmbientLight(0xffffff, 1.8));
-const sun = new THREE.DirectionalLight(0xffffff, 0.8);
-sun.position.set(2, 4, 5);
-scene.add(sun);
+scene.add(new THREE.AmbientLight(0xffffff, 2.0));
+const dlight = new THREE.DirectionalLight(0xffffff, 1.0);
+dlight.position.set(3, 5, 5);
+scene.add(dlight);
 
 window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -190,11 +185,8 @@ window.addEventListener('resize', () => {
 
 let artGroup = null;
 
-// ════════════════════════════════════════════
-//  3Dオブジェクト生成
-//  ちらつき対策：polygonOffset でテクスチャ面を
-//  エッジ面より確実に手前に描画する
-// ════════════════════════════════════════════
+// ─── 3Dオブジェクト生成 ───────────────────
+// croppedCanvas: フリーハンド切り抜き済みの透過PNG
 function buildObject(croppedCanvas) {
   if (artGroup) {
     scene.remove(artGroup);
@@ -204,9 +196,14 @@ function buildObject(croppedCanvas) {
     artGroup = null;
   }
 
-  const aspect = croppedCanvas.width / croppedCanvas.height;
-  const H = 1.4, W = H * aspect;
-  const THICK = 0.06;
+  const W_px = croppedCanvas.width;
+  const H_px = croppedCanvas.height;
+  const aspect = W_px / H_px;
+
+  // 表示サイズ（Three.js 単位）
+  const H3 = 1.8;
+  const W3 = H3 * aspect;
+  const THICK = 0.06; // 厚み
 
   const tex = new THREE.CanvasTexture(croppedCanvas);
   tex.needsUpdate = true;
@@ -214,358 +211,329 @@ function buildObject(croppedCanvas) {
   tex.magFilter = THREE.LinearFilter;
 
   artGroup = new THREE.Group();
-  // rotation なし → PlaneがXY平面 = カメラ正面を向いて「立っている」
+  // ★ rotation は一切設定しない ← これが「立てる」唯一の正解
 
-  // ── ExtrudeGeometry で厚みある板（エッジ色） ──
+  // ── ExtrudeGeometry（板本体・厚みあり）────
   const shape = new THREE.Shape();
-  shape.moveTo(-W/2, -H/2);
-  shape.lineTo( W/2, -H/2);
-  shape.lineTo( W/2,  H/2);
-  shape.lineTo(-W/2,  H/2);
+  shape.moveTo(-W3/2, -H3/2);
+  shape.lineTo( W3/2, -H3/2);
+  shape.lineTo( W3/2,  H3/2);
+  shape.lineTo(-W3/2,  H3/2);
   shape.closePath();
 
-  const extGeo = new THREE.ExtrudeGeometry(shape, { depth: THICK, bevelEnabled: false });
-  extGeo.translate(0, 0, -THICK / 2);
-
-  const edgeMat = new THREE.MeshLambertMaterial({
-    color: 0xf0ece0,
-    polygonOffset: true,
-    polygonOffsetFactor: 1,
-    polygonOffsetUnits: 1,
+  const extGeo = new THREE.ExtrudeGeometry(shape, {
+    depth: THICK, bevelEnabled: false
   });
+  extGeo.translate(0, 0, -THICK / 2); // 中心をZ=0に
+
+  const edgeMat = new THREE.MeshLambertMaterial({ color: 0xfaf6ef });
   const extMesh = new THREE.Mesh(extGeo, edgeMat);
   extMesh.renderOrder = 0;
   artGroup.add(extMesh);
 
-  // ── 前面テクスチャ（z-fighting 防止） ──
-  const frontMat = new THREE.MeshBasicMaterial({
+  // ── 前面テクスチャ ──────────────────────
+  // depthTest: false にしてエッジとのz-fightingを完全回避
+  const fMat = new THREE.MeshBasicMaterial({
     map: tex,
     transparent: true,
+    alphaTest: 0.01,
+    depthTest: false,
     depthWrite: false,
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -1,
   });
-  const front = new THREE.Mesh(new THREE.PlaneGeometry(W, H), frontMat);
-  front.position.z = THICK / 2 + 0.001;
-  front.renderOrder = 1;
-  artGroup.add(front);
+  const fMesh = new THREE.Mesh(new THREE.PlaneGeometry(W3, H3), fMat);
+  fMesh.position.z = THICK / 2 + 0.003;
+  fMesh.renderOrder = 2;
+  artGroup.add(fMesh);
 
-  // ── 後面テクスチャ ──
-  const backMat = new THREE.MeshBasicMaterial({
+  // ── 後面テクスチャ ──────────────────────
+  const bMat = new THREE.MeshBasicMaterial({
     map: tex,
     transparent: true,
+    alphaTest: 0.01,
+    depthTest: false,
     depthWrite: false,
     side: THREE.BackSide,
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -1,
   });
-  const back = new THREE.Mesh(new THREE.PlaneGeometry(W, H), backMat);
-  back.position.z = -(THICK / 2 + 0.001);
-  back.renderOrder = 1;
-  artGroup.add(back);
+  const bMesh = new THREE.Mesh(new THREE.PlaneGeometry(W3, H3), bMat);
+  bMesh.position.z = -(THICK / 2 + 0.003);
+  bMesh.renderOrder = 2;
+  artGroup.add(bMesh);
 
   artGroup.position.set(0, 0, 0);
   scene.add(artGroup);
   statusEl.innerText = '完了！コントローラーで動かしてね ✨';
 }
 
-// ════════════════════════════════════════════
-//  フリーハンドトリミングUI
-// ════════════════════════════════════════════
+// ═══════════════════════════════════════════
+//  フリーハンドトリミング
+//  処理フロー：
+//  1. photoCanvas に画像を表示
+//  2. drawCanvas で指の軌跡を描画（緑の輪郭）
+//  3. 決定時：
+//     a. pathPoints のバウンディングボックスを計算
+//     b. 出力 canvas にフリーハンドパスで clip()
+//     c. clip 内に photoCanvas を描画 → 外側は透明
+// ═══════════════════════════════════════════
 const cropScreen  = document.getElementById('crop-screen');
-const photoCanvas = document.getElementById('photo-canvas');
-const photoCTX    = photoCanvas.getContext('2d');
-const drawCanvas  = document.getElementById('draw-canvas');
-const drawCTX     = drawCanvas.getContext('2d');
+const photoCvs    = document.getElementById('photo-canvas');
+const photoCtx    = photoCvs.getContext('2d');
+const drawCvs     = document.getElementById('draw-canvas');
+const drawCtx     = drawCvs.getContext('2d');
 
-// なぞった点の列（drawCanvas 座標系）
-let pathPoints = [];
+let pathPoints = [];  // draw-canvas 上の座標
 let isDrawing  = false;
-// photo に対する drawCanvas のスケール
-let scaleX = 1, scaleY = 1;
+let lastPt     = null;
 
-function syncCanvasSize() {
-  const w = photoCanvas.offsetWidth  || photoCanvas.width;
-  const h = photoCanvas.offsetHeight || photoCanvas.height;
-  drawCanvas.width  = w;
-  drawCanvas.height = h;
-  drawCanvas.style.width  = photoCanvas.style.width  || photoCanvas.width  + 'px';
-  drawCanvas.style.height = photoCanvas.style.height || photoCanvas.height + 'px';
-  drawCanvas.style.left   = photoCanvas.offsetLeft + 'px';
-  drawCanvas.style.top    = photoCanvas.offsetTop  + 'px';
-  // photo の実ピクセル → draw キャンバスのスケール
-  scaleX = w / photoCanvas.width;
-  scaleY = h / photoCanvas.height;
+// draw-canvas を photo-canvas に重ねてサイズ同期
+function syncDrawCanvas() {
+  const r = photoCvs.getBoundingClientRect();
+  drawCvs.width  = Math.round(r.width);
+  drawCvs.height = Math.round(r.height);
+  drawCvs.style.width  = r.width  + 'px';
+  drawCvs.style.height = r.height + 'px';
+  drawCvs.style.left   = (photoCvs.offsetLeft) + 'px';
+  drawCvs.style.top    = (photoCvs.offsetTop)  + 'px';
 }
 
-function getDrawPos(touch) {
-  const rect = drawCanvas.getBoundingClientRect();
-  return {
-    x: touch.clientX - rect.left,
-    y: touch.clientY - rect.top
-  };
+function getPos(touch_or_mouse) {
+  const r = drawCvs.getBoundingClientRect();
+  const cx = touch_or_mouse.clientX != null ? touch_or_mouse.clientX : touch_or_mouse.touches[0].clientX;
+  const cy = touch_or_mouse.clientX != null ? touch_or_mouse.clientY : touch_or_mouse.touches[0].clientY;
+  return { x: cx - r.left, y: cy - r.top };
 }
 
 function redrawPath() {
-  drawCTX.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+  drawCtx.clearRect(0, 0, drawCvs.width, drawCvs.height);
   if (pathPoints.length < 2) return;
-
-  drawCTX.beginPath();
-  drawCTX.moveTo(pathPoints[0].x, pathPoints[0].y);
-  for (let i = 1; i < pathPoints.length; i++) {
-    drawCTX.lineTo(pathPoints[i].x, pathPoints[i].y);
-  }
-  // 閉じていれば閉じる線を描く
-  if (pathPoints.length > 2) {
-    drawCTX.lineTo(pathPoints[0].x, pathPoints[0].y);
-  }
-
-  // 塗りつぶし（半透明緑）
-  drawCTX.fillStyle   = 'rgba(0,255,0,0.15)';
-  drawCTX.fill();
-  // 輪郭線
-  drawCTX.strokeStyle = '#00ff00';
-  drawCTX.lineWidth   = 2.5;
-  drawCTX.lineJoin    = 'round';
-  drawCTX.lineCap     = 'round';
-  drawCTX.stroke();
+  drawCtx.beginPath();
+  drawCtx.moveTo(pathPoints[0].x, pathPoints[0].y);
+  for (let i = 1; i < pathPoints.length; i++) drawCtx.lineTo(pathPoints[i].x, pathPoints[i].y);
+  if (!isDrawing && pathPoints.length > 2) drawCtx.closePath();
+  drawCtx.fillStyle   = 'rgba(0,255,0,0.12)';
+  drawCtx.fill();
+  drawCtx.strokeStyle = '#00ff44';
+  drawCtx.lineWidth   = 2.5;
+  drawCtx.lineJoin    = 'round';
+  drawCtx.lineCap     = 'round';
+  drawCtx.stroke();
 }
 
-// タッチ開始
-drawCanvas.addEventListener('touchstart', e => {
+function startDraw(e) {
   e.preventDefault();
-  isDrawing = true;
-  const p = getDrawPos(e.touches[0]);
+  isDrawing  = true;
+  const p    = getPos(e.touches ? e : e);
   pathPoints = [p];
+  lastPt     = p;
   redrawPath();
-}, { passive: false });
-
-// タッチ移動（間引きで軽量化）
-let lastAddedPoint = null;
-drawCanvas.addEventListener('touchmove', e => {
+}
+function moveDraw(e) {
   e.preventDefault();
   if (!isDrawing) return;
-  const p = getDrawPos(e.touches[0]);
-  // 直前の点から 6px 以上離れたら追加
-  if (!lastAddedPoint ||
-      Math.hypot(p.x - lastAddedPoint.x, p.y - lastAddedPoint.y) > 6) {
+  const p = getPos(e.touches ? e : e);
+  if (Math.hypot(p.x - lastPt.x, p.y - lastPt.y) > 5) {
     pathPoints.push(p);
-    lastAddedPoint = p;
+    lastPt = p;
     redrawPath();
   }
-}, { passive: false });
-
-// タッチ終了
-drawCanvas.addEventListener('touchend', e => {
+}
+function endDraw(e) {
   e.preventDefault();
   isDrawing = false;
-  lastAddedPoint = null;
-  redrawPath(); // 閉じた輪郭を描画
-}, { passive: false });
-
-// マウス対応（PC確認用）
-drawCanvas.addEventListener('mousedown', e => {
-  isDrawing = true;
-  const rect = drawCanvas.getBoundingClientRect();
-  pathPoints = [{ x: e.clientX - rect.left, y: e.clientY - rect.top }];
+  lastPt    = null;
   redrawPath();
-});
-window.addEventListener('mousemove', e => {
-  if (!isDrawing) return;
-  const rect = drawCanvas.getBoundingClientRect();
-  const p = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-  if (!lastAddedPoint || Math.hypot(p.x - lastAddedPoint.x, p.y - lastAddedPoint.y) > 6) {
-    pathPoints.push(p);
-    lastAddedPoint = p;
-    redrawPath();
-  }
-});
-window.addEventListener('mouseup', () => { isDrawing = false; lastAddedPoint = null; });
+}
 
-// やり直し
+drawCvs.addEventListener('touchstart', startDraw, { passive: false });
+drawCvs.addEventListener('touchmove',  moveDraw,  { passive: false });
+drawCvs.addEventListener('touchend',   endDraw,   { passive: false });
+drawCvs.addEventListener('mousedown',  startDraw);
+window.addEventListener('mousemove',   moveDraw);
+window.addEventListener('mouseup',     endDraw);
+
 document.getElementById('cb-reset').addEventListener('click', () => {
   pathPoints = [];
-  drawCTX.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+  drawCtx.clearRect(0, 0, drawCvs.width, drawCvs.height);
 });
-
-// キャンセル
 document.getElementById('cb-cancel').addEventListener('click', () => {
-  cropScreen.classList.remove('show');
   pathPoints = [];
+  cropScreen.classList.remove('show');
 });
 
-// 決定：フリーハンドのパスで切り抜き
 document.getElementById('cb-ok').addEventListener('click', () => {
-  if (pathPoints.length < 3) {
-    alert('指でなぞって範囲を選んでね！');
-    return;
-  }
+  if (pathPoints.length < 3) { alert('指でなぞって範囲を囲んでね！'); return; }
 
-  // drawCanvas座標 → photoCanvas実ピクセル座標に変換
-  const photoRect = photoCanvas.getBoundingClientRect();
-  const px = photoCanvas.width  / photoRect.width;
-  const py = photoCanvas.height / photoRect.height;
+  // draw-canvas 座標 → photo-canvas 実ピクセル座標に変換
+  const scX = photoCvs.width  / drawCvs.width;
+  const scY = photoCvs.height / drawCvs.height;
+  const pts = pathPoints.map(p => ({ x: p.x * scX, y: p.y * scY }));
 
-  const pts = pathPoints.map(p => ({
-    x: p.x * px,
-    y: p.y * py
-  }));
-
-  // バウンディングボックス計算
-  let x0=Infinity, y0=Infinity, x1=-Infinity, y1=-Infinity;
+  // バウンディングボックス
+  let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
   pts.forEach(p => {
-    if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x;
-    if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y;
+    if(p.x<x0)x0=p.x; if(p.x>x1)x1=p.x;
+    if(p.y<y0)y0=p.y; if(p.y>y1)y1=p.y;
   });
-  x0=Math.max(0,Math.floor(x0)); y0=Math.max(0,Math.floor(y0));
-  x1=Math.min(photoCanvas.width, Math.ceil(x1));
-  y1=Math.min(photoCanvas.height, Math.ceil(y1));
+  x0=Math.max(0,Math.floor(x0-4));   y0=Math.max(0,Math.floor(y0-4));
+  x1=Math.min(photoCvs.width, Math.ceil(x1+4));
+  y1=Math.min(photoCvs.height,Math.ceil(y1+4));
+  const cw=x1-x0, ch=y1-y0;
+  if(cw<4||ch<4){ alert('もう少し広い範囲をなぞってね'); return; }
 
-  const cw = x1 - x0, ch = y1 - y0;
-  if (cw < 4 || ch < 4) { alert('もう少し広い範囲をなぞってね'); return; }
-
-  // 出力キャンバスを作成
+  // 出力 canvas：フリーハンドパスで clip → 外側は透明
   const out = document.createElement('canvas');
-  out.width = cw; out.height = ch;
+  out.width=cw; out.height=ch;
   const octx = out.getContext('2d');
 
-  // フリーハンドのパスをクリップマスクとして適用
   octx.save();
+  // フリーハンドパスをクリップマスクとして設定
   octx.beginPath();
-  octx.moveTo(pts[0].x - x0, pts[0].y - y0);
-  for (let i = 1; i < pts.length; i++) {
-    octx.lineTo(pts[i].x - x0, pts[i].y - y0);
-  }
+  octx.moveTo(pts[0].x-x0, pts[0].y-y0);
+  for(let i=1;i<pts.length;i++) octx.lineTo(pts[i].x-x0, pts[i].y-y0);
   octx.closePath();
   octx.clip();
-
-  // クリップ内に photoCanvas を描画
-  octx.drawImage(photoCanvas, x0, y0, cw, ch, 0, 0, cw, ch);
+  // マスク内に写真を描画（外側は alpha=0 のまま）
+  octx.drawImage(photoCvs, x0,y0,cw,ch, 0,0,cw,ch);
   octx.restore();
 
   cropScreen.classList.remove('show');
   pathPoints = [];
-  drawCTX.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+  drawCtx.clearRect(0,0,drawCvs.width,drawCvs.height);
 
   buildObject(out);
 });
 
-// ════════════════════════════════════════════
-//  トリミング画面を開く
-// ════════════════════════════════════════════
+// ─── トリミング画面を開く ──────────────────
 function openCropScreen(img) {
-  // photoCanvas に収まるサイズで描画
   const maxW = window.innerWidth;
   const maxH = window.innerHeight - 130;
   const ratio = Math.min(maxW / img.width, maxH / img.height, 1);
-  photoCanvas.width  = Math.round(img.width  * ratio);
-  photoCanvas.height = Math.round(img.height * ratio);
-  photoCanvas.style.width  = photoCanvas.width  + 'px';
-  photoCanvas.style.height = photoCanvas.height + 'px';
-  photoCTX.drawImage(img, 0, 0, photoCanvas.width, photoCanvas.height);
-
+  photoCvs.width  = Math.round(img.width  * ratio);
+  photoCvs.height = Math.round(img.height * ratio);
+  photoCvs.style.width  = photoCvs.width  + 'px';
+  photoCvs.style.height = photoCvs.height + 'px';
+  photoCtx.drawImage(img, 0, 0, photoCvs.width, photoCvs.height);
   pathPoints = [];
   cropScreen.classList.add('show');
-
-  // 表示後に drawCanvas サイズを合わせる
   requestAnimationFrame(() => {
-    syncCanvasSize();
-    drawCTX.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+    syncDrawCanvas();
+    drawCtx.clearRect(0, 0, drawCvs.width, drawCvs.height);
   });
 }
 
 // 撮影
 document.getElementById('btn-camera').addEventListener('click', () => {
-  const vw = bgVideo.videoWidth||640, vh = bgVideo.videoHeight||480;
-  const snap = document.createElement('canvas');
+  const vw=bgVideo.videoWidth||640, vh=bgVideo.videoHeight||480;
+  const snap=document.createElement('canvas');
   snap.width=vw; snap.height=vh;
-  snap.getContext('2d').drawImage(bgVideo, 0, 0, vw, vh);
-  const img = new Image();
-  img.onload = () => openCropScreen(img);
-  img.src = snap.toDataURL('image/png');
+  snap.getContext('2d').drawImage(bgVideo,0,0,vw,vh);
+  const img=new Image();
+  img.onload=()=>openCropScreen(img);
+  img.src=snap.toDataURL('image/png');
 });
-
 // ファイル選択
-document.getElementById('btn-upload').addEventListener('click', () =>
-  document.getElementById('image-up').click());
-document.getElementById('image-up').addEventListener('change', e => {
-  const file = e.target.files[0]; if (!file) return;
-  const reader = new FileReader();
-  reader.onload = ev => {
-    const img = new Image();
-    img.onload = () => openCropScreen(img);
-    img.src = ev.target.result;
-  };
+document.getElementById('btn-upload').addEventListener('click', ()=>document.getElementById('image-up').click());
+document.getElementById('image-up').addEventListener('change', e=>{
+  const file=e.target.files[0]; if(!file)return;
+  const reader=new FileReader();
+  reader.onload=ev=>{ const img=new Image(); img.onload=()=>openCropScreen(img); img.src=ev.target.result; };
   reader.readAsDataURL(file);
-  e.target.value = '';
+  e.target.value='';
 });
-
 // 消す
-document.getElementById('btn-clear').addEventListener('click', () => {
-  if (artGroup) {
-    scene.remove(artGroup);
-    artGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
-    artGroup = null;
-  }
-  statusEl.innerText = '消しました。また読み込んでね';
+document.getElementById('btn-clear').addEventListener('click', ()=>{
+  if(artGroup){ scene.remove(artGroup); artGroup.traverse(o=>{ if(o.isMesh){o.geometry.dispose();o.material.dispose();} }); artGroup=null; }
+  statusEl.innerText='消しました。また読み込んでね';
 });
 
-// ════════════════════════════════════════════
-//  ジョイスティック（左右X・前後Z）
-// ════════════════════════════════════════════
+// ═══════════════════════════════════════════
+//  ジョイスティック＋方向転換アニメーション
+//
+//  移動するとき Y軸を中心に回転させることで
+//  「向こう側に回り込んで移動する」感覚を出す
+//  左に動かす → 右に少し傾く（向こう側に行くような動き）
+//  速度が落ちると元の正面向きに戻る
+// ═══════════════════════════════════════════
 const joyBase = document.getElementById('joy-base');
 const knob    = document.getElementById('joy-knob');
 let joyOn=false, jx=0, jy=0;
-const JR=30, JS=0.006;
+const JR=30;
 
-joyBase.addEventListener('touchstart', e => {
+// 速度ベクトル（慣性あり）
+let velX=0, velZ=0;
+let joyDX=0, joyDZ=0; // ジョイ入力
+
+joyBase.addEventListener('touchstart', e=>{
   e.preventDefault(); joyOn=true;
   jx=e.touches[0].clientX; jy=e.touches[0].clientY;
   knob.style.transition='none';
-}, {passive:false});
+},{passive:false});
 
-window.addEventListener('touchmove', e => {
-  if (!joyOn) return; e.preventDefault();
-  const t=e.touches[0], dx=t.clientX-jx, dy=t.clientY-jy;
+window.addEventListener('touchmove', e=>{
+  if(!joyOn) return; e.preventDefault();
+  const t=e.touches[0];
+  const dx=t.clientX-jx, dy=t.clientY-jy;
   const dist=Math.sqrt(dx*dx+dy*dy), cl=Math.min(dist,JR), ang=Math.atan2(dy,dx);
   knob.style.transform=`translate(${cl*Math.cos(ang)}px,${cl*Math.sin(ang)}px)`;
-  if (artGroup) {
-    artGroup.position.x += dx * JS;
-    artGroup.position.z -= dy * JS;
-  }
+  // 入力値を保存（レンダーループで使う）
+  joyDX = dx / JR; // -1〜1
+  joyDZ = dy / JR;
   jx=t.clientX; jy=t.clientY;
-}, {passive:false});
+},{passive:false});
 
-window.addEventListener('touchend', () => {
+window.addEventListener('touchend', ()=>{
   joyOn=false;
+  joyDX=0; joyDZ=0;
   knob.style.transition='transform 0.12s ease-out';
   knob.style.transform='translate(0,0)';
 });
 
-// ════════════════════════════════════════════
-//  上下ボタン（Y軸）
-// ════════════════════════════════════════════
+// 上下ボタン（Y軸）
 const HS=0.07;
 let vTimer=null;
-const chY = d => { if(artGroup) artGroup.position.y += d; };
-const stY = d => { chY(d); vTimer=setInterval(()=>chY(d),100); };
-const spY = () => clearInterval(vTimer);
-
-['touchstart','mousedown'].forEach(ev => {
-  document.getElementById('btn-up').addEventListener(ev, e=>{e.preventDefault();stY( HS);},{passive:false});
-  document.getElementById('btn-dn').addEventListener(ev, e=>{e.preventDefault();stY(-HS);},{passive:false});
+const chY = d=>{ if(artGroup) artGroup.position.y+=d; };
+const stY = d=>{ chY(d); vTimer=setInterval(()=>chY(d),100); };
+const spY = ()=>clearInterval(vTimer);
+['touchstart','mousedown'].forEach(ev=>{
+  document.getElementById('btn-up').addEventListener(ev,e=>{e.preventDefault();stY( HS);},{passive:false});
+  document.getElementById('btn-dn').addEventListener(ev,e=>{e.preventDefault();stY(-HS);},{passive:false});
 });
-['touchend','mouseup'].forEach(ev => {
-  document.getElementById('btn-up').addEventListener(ev, spY);
-  document.getElementById('btn-dn').addEventListener(ev, spY);
+['touchend','mouseup'].forEach(ev=>{
+  document.getElementById('btn-up').addEventListener(ev,spY);
+  document.getElementById('btn-dn').addEventListener(ev,spY);
 });
 
-// ════════════════════════════════════════════
+// ═══════════════════════════════════════════
 //  レンダーループ
-// ════════════════════════════════════════════
-(function loop() { requestAnimationFrame(loop); renderer.render(scene, cam); })();
+//  ここで慣性・回転を毎フレーム更新
+// ═══════════════════════════════════════════
+const SPEED    = 0.035; // 移動速度
+const FRICTION = 0.82;  // 慣性の減衰（1に近いほど滑らか）
+const ROT_MAX  = 0.7;   // 最大回転角（ラジアン）
+const ROT_LERP = 0.10;  // 回転の追従速度
+
+let targetRotY = 0; // 目標回転角
+
+(function loop() {
+  requestAnimationFrame(loop);
+
+  if (artGroup) {
+    // 速度に入力を加算
+    velX = velX * FRICTION + joyDX * SPEED;
+    velZ = velZ * FRICTION + joyDZ * SPEED;
+
+    // 位置を更新
+    artGroup.position.x += velX;
+    artGroup.position.z -= velZ; // 上スライド=手前
+
+    // Y軸回転：左に動くとき右に傾く（向こう側に行く感）
+    // velX が正（右移動）→ 少し左向き（-Y方向）
+    targetRotY = -velX * (ROT_MAX / SPEED) * 0.5;
+    targetRotY = Math.max(-ROT_MAX, Math.min(ROT_MAX, targetRotY));
+    artGroup.rotation.y += (targetRotY - artGroup.rotation.y) * ROT_LERP;
+  }
+
+  renderer.render(scene, cam);
+})();
 </script>
 </body>
 </html>
