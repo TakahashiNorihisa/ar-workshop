@@ -32,7 +32,6 @@
     .ui-btn.red { background: rgba(255,70,70,0.3); border-color: rgba(255,100,100,0.5); }
     #image-up { display: none; }
 
-    /* 撮影プレビュー */
     #cap-overlay {
       display: none; position: fixed; inset: 0; z-index: 200;
       background: rgba(0,0,0,0.92);
@@ -45,7 +44,6 @@
     #btn-retake { background: #555; color: #fff; }
     #btn-use    { background: #4af; color: #000; }
 
-    /* ジョイスティック */
     #joy-base {
       position: fixed; bottom: 38px; left: 38px; z-index: 100;
       width: 110px; height: 110px; border-radius: 50%; touch-action: none;
@@ -60,10 +58,8 @@
     }
     #joy-label {
       position: fixed; bottom: 152px; left: 48px; z-index: 100;
-      color: rgba(255,255,255,0.45); font-size: 10px; text-align: center; width: 90px;
+      color: rgba(255,255,255,0.5); font-size: 10px; text-align: center; width: 90px;
     }
-
-    /* 上下ボタン */
     #vert-ctrl {
       position: fixed; bottom: 38px; right: 28px; z-index: 100;
       display: flex; flex-direction: column; gap: 8px;
@@ -76,12 +72,11 @@
     }
     #v-label {
       position: fixed; bottom: 152px; right: 32px; z-index: 100;
-      color: rgba(255,255,255,0.45); font-size: 10px; text-align: center; width: 44px;
+      color: rgba(255,255,255,0.5); font-size: 10px; text-align: center; width: 44px;
     }
   </style>
 </head>
 <body>
-
 <video id="bg-video" autoplay playsinline muted></video>
 <canvas id="three-canvas"></canvas>
 
@@ -114,40 +109,33 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-// ─────────────────────────────────────────────
-//  カメラ映像
-// ─────────────────────────────────────────────
-const bgVideo = document.getElementById('bg-video');
+// ── カメラ映像 ──────────────────────────────
+const bgVideo  = document.getElementById('bg-video');
 const statusEl = document.getElementById('status');
-navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
+navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal:'environment' } }, audio:false })
   .then(s => bgVideo.srcObject = s)
   .catch(() => statusEl.innerText = 'カメラが使えません');
 
-// ─────────────────────────────────────────────
-//  Three.js
-//  カメラを斜め上 (y=3, z=4) からシーンを見下ろす
-//  → 板が地面に「立っている」ように見える
-// ─────────────────────────────────────────────
-const canvas3 = document.getElementById('three-canvas');
+// ── Three.js レンダラー ──────────────────────
+const canvas3  = document.getElementById('three-canvas');
 const renderer = new THREE.WebGLRenderer({ canvas: canvas3, alpha: true, antialias: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
 
 const scene = new THREE.Scene();
+
+// ─────────────────────────────────────────────
+//  カメラ配置：斜め前上方から見下ろす
+//  これにより「地面に垂直に立った板」が立体的に見える
+// ─────────────────────────────────────────────
 const cam = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.001, 100);
+cam.position.set(0, 2, 5);
+cam.lookAt(0, 0.5, 0);   // 少し下向きに
 
-// 斜め前上方からシーン中央を見下ろす
-cam.position.set(0, 2.5, 4.5);
-cam.lookAt(0, 0, 0);
-
-// ライト
-scene.add(new THREE.AmbientLight(0xffffff, 1.5));
-const sun = new THREE.DirectionalLight(0xffffff, 0.9);
-sun.position.set(2, 5, 4);
+scene.add(new THREE.AmbientLight(0xffffff, 1.6));
+const sun = new THREE.DirectionalLight(0xffffff, 1.0);
+sun.position.set(3, 5, 4);
 scene.add(sun);
-const fill = new THREE.DirectionalLight(0xffffff, 0.3);
-fill.position.set(-3, 1, -2);
-scene.add(fill);
 
 window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -156,88 +144,67 @@ window.addEventListener('resize', () => {
 });
 
 let artGroup = null;
-let lastTrimmed = null;
 
 // ─────────────────────────────────────────────
-//  背景除去：四隅の色をサンプリングして背景色を検出
-//  → 輪郭線の色を「背景」と誤認しにくい
+//  白背景を透過
+//  シンプルに「白に近いピクセルを透明化」
+//  閾値 230：白い紙は消えるが絵の線・色は残る
 // ─────────────────────────────────────────────
-function removeBackground(img) {
+function removeWhite(img) {
   const S = 1024;
   const c = document.createElement('canvas');
   c.width = c.height = S;
   const ctx = c.getContext('2d');
-  ctx.fillStyle = 'white';
+  ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, S, S);
   ctx.drawImage(img, 0, 0, S, S);
 
   const id = ctx.getImageData(0, 0, S, S);
   const d  = id.data;
-
-  // 四隅 5×5 の平均色を「背景色」とする
-  function sampleCorner(ax, ay) {
-    let r=0, g=0, b=0, n=0;
-    for (let dy = 0; dy < 5; dy++) for (let dx = 0; dx < 5; dx++) {
-      const i = ((ay+dy)*S + (ax+dx)) * 4;
-      r += d[i]; g += d[i+1]; b += d[i+2]; n++;
-    }
-    return [r/n, g/n, b/n];
-  }
-  const corners = [
-    sampleCorner(0,0), sampleCorner(S-5,0),
-    sampleCorner(0,S-5), sampleCorner(S-5,S-5)
-  ];
-  // 四隅の平均をまとめて背景色とする
-  const bg = corners.reduce((a,c)=>[a[0]+c[0]/4, a[1]+c[1]/4, a[2]+c[2]/4], [0,0,0]);
-  const [bgR, bgG, bgB] = bg;
-
-  // 閾値：背景色との色差が小さいピクセルを透明化
-  // 輪郭線（黒・濃い色）は色差が大きいので残る
-  const THRESH = 40; // 色差の許容範囲
   for (let i = 0; i < d.length; i += 4) {
-    const dr = Math.abs(d[i]   - bgR);
-    const dg = Math.abs(d[i+1] - bgG);
-    const db = Math.abs(d[i+2] - bgB);
-    if (dr + dg + db < THRESH * 3) d[i+3] = 0;
+    if (d[i] > 230 && d[i+1] > 230 && d[i+2] > 230) {
+      d[i+3] = 0;
+    }
   }
   ctx.putImageData(id, 0, 0);
   return c;
 }
 
 // ─────────────────────────────────────────────
-//  輪郭トリミング
+//  輪郭トリミング：不透明ピクセルのバウンディングボックス
 // ─────────────────────────────────────────────
 function trimBounds(src) {
   const w = src.width, h = src.height;
   const d = src.getContext('2d').getImageData(0, 0, w, h).data;
-  let x0=w, x1=0, y0=h, y1=0;
+  let x0=w, x1=0, y0=h, y1=0, found=false;
   for (let y=0; y<h; y++) for (let x=0; x<w; x++) {
-    if (d[(y*w+x)*4+3] > 10) {
+    if (d[(y*w+x)*4+3] > 20) {
+      found = true;
       if (x<x0) x0=x; if (x>x1) x1=x;
       if (y<y0) y0=y; if (y>y1) y1=y;
     }
   }
-  if (x0 >= x1 || y0 >= y1) return src;
-  const pad = 10;
+  if (!found) return src;
+  const pad=12;
   x0=Math.max(0,x0-pad); y0=Math.max(0,y0-pad);
   x1=Math.min(w,x1+pad); y1=Math.min(h,y1+pad);
   const out = document.createElement('canvas');
-  out.width = x1-x0; out.height = y1-y0;
-  out.getContext('2d').drawImage(src, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
+  out.width=x1-x0; out.height=y1-y0;
+  out.getContext('2d').drawImage(src, x0,y0,out.width,out.height, 0,0,out.width,out.height);
   return out;
 }
 
 // ─────────────────────────────────────────────
 //  3Dオブジェクト生成
 //
-//  【立体的に見せる仕組み】
-//  カメラが斜め上 (y=2.5, z=4.5) から見下ろしているので、
-//  XY平面に立てた板は「斜めから見た絵」として表示される。
-//  床（グリッド）も表示して地面感を演出。
+//  ★ 立体的に見せる核心ロジック：
+//    artGroup.rotation.x = -Math.PI / 2  →  板を90度倒して「地面に垂直に立てる」
+//    板はデフォルトでXY平面（水平）なので、X軸で-90度回転すると垂直（XZ平面）になる
+//    カメラが斜め上から見るので「絵が地面に立っている」ように見える
 //
-//  【厚みの仕組み】
-//  THREE.ExtrudeGeometry で Shape を押し出し、本当の3D厚みを作る。
-//  テクスチャは前面・後面のPlaneで別途重ねる。
+//  ★ 厚み：
+//    ExtrudeGeometry で Shape を Z方向に押し出し → 本当の3D立体
+//    テクスチャは押し出した前面・後面に別途 Plane を重ねる
 // ─────────────────────────────────────────────
 function buildObject(trimmed) {
   if (artGroup) {
@@ -249,14 +216,14 @@ function buildObject(trimmed) {
   const aspect = trimmed.width / trimmed.height;
   const H = 1.4;
   const W = H * aspect;
-  const D = 0.05; // 厚み（約2mm相当、Three.js単位）
+  const THICK = 0.06; // 厚み（Three.js 単位、約3mm相当）
 
   const tex = new THREE.CanvasTexture(trimmed);
   tex.needsUpdate = true;
 
   artGroup = new THREE.Group();
 
-  // ── ExtrudeGeometry で厚みのある板を作る ──
+  // ── ExtrudeGeometry で厚みのある板 ──────────
   const shape = new THREE.Shape();
   shape.moveTo(-W/2, -H/2);
   shape.lineTo( W/2, -H/2);
@@ -264,78 +231,65 @@ function buildObject(trimmed) {
   shape.lineTo(-W/2,  H/2);
   shape.closePath();
 
-  const extrudeSettings = {
-    depth: D,
+  const extGeo = new THREE.ExtrudeGeometry(shape, {
+    depth: THICK,
     bevelEnabled: false
-  };
-  const extGeo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-  // ExtrudeGeometry はZ方向に押し出されるので、中心合わせ
-  extGeo.translate(0, 0, -D/2);
+  });
+  // ExtrudeGeometry は Z=0〜THICK に生成されるので中心を Z=0 にシフト
+  extGeo.translate(0, 0, -THICK / 2);
 
-  // 側面・エッジの色
-  const solidMat = new THREE.MeshLambertMaterial({ color: 0xf0ece0 });
-  const extMesh  = new THREE.Mesh(extGeo, solidMat);
-  artGroup.add(extMesh);
+  const edgeMat = new THREE.MeshLambertMaterial({ color: 0xf5f0e8 });
+  artGroup.add(new THREE.Mesh(extGeo, edgeMat));
 
-  // ── テクスチャは前面・後面のPlaneで重ねる ──
-  const planeMat = new THREE.MeshBasicMaterial({
+  // ── 前面テクスチャ ────────────────────────
+  const faceMat = new THREE.MeshBasicMaterial({
     map: tex, transparent: true, depthWrite: false
   });
+  const front = new THREE.Mesh(new THREE.PlaneGeometry(W, H), faceMat);
+  front.position.z = THICK / 2 + 0.002;
+  artGroup.add(front);
 
-  const frontPlane = new THREE.Mesh(new THREE.PlaneGeometry(W, H), planeMat);
-  frontPlane.position.z =  D/2 + 0.001;
-  artGroup.add(frontPlane);
+  // ── 後面テクスチャ ────────────────────────
+  const backMat = new THREE.MeshBasicMaterial({
+    map: tex, transparent: true, depthWrite: false, side: THREE.BackSide
+  });
+  const back = new THREE.Mesh(new THREE.PlaneGeometry(W, H), backMat);
+  back.position.z = -(THICK / 2 + 0.002);
+  artGroup.add(back);
 
-  const backPlane = new THREE.Mesh(
-    new THREE.PlaneGeometry(W, H),
-    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.BackSide })
-  );
-  backPlane.position.z = -D/2 - 0.001;
-  artGroup.add(backPlane);
+  // ★ 板を立てる：X軸で-90度回転 → 水平な板が垂直に立つ
+  artGroup.rotation.x = -Math.PI / 2;
 
-  // 初期位置：中央、地面より少し上
-  artGroup.position.set(0, H/2, 0);
+  // 初期位置：画面中央、地面（y=0）の少し上
+  artGroup.position.set(0, 0, 0);
 
   scene.add(artGroup);
   statusEl.innerText = '完了！コントローラーで動かしてね ✨';
 }
 
-// 地面グリッド（AR感の演出）
-const grid = new THREE.GridHelper(10, 20, 0x444444, 0x222222);
-scene.add(grid);
-
 // ─────────────────────────────────────────────
-//  画像処理エントリ
+//  画像処理
 // ─────────────────────────────────────────────
 function processImg(img) {
   statusEl.innerText = '処理中...';
   setTimeout(() => {
-    try {
-      const transparent = removeBackground(img);
-      const trimmed     = trimBounds(transparent);
-      lastTrimmed = trimmed;
-      buildObject(trimmed);
-    } catch(e) {
-      statusEl.innerText = 'エラー: ' + e.message;
-    }
+    const transparent = removeWhite(img);
+    const trimmed     = trimBounds(transparent);
+    buildObject(trimmed);
   }, 50);
 }
 
-// ─────────────────────────────────────────────
-//  消すボタン
-// ─────────────────────────────────────────────
+// ── 消すボタン ─────────────────────────────
 document.getElementById('btn-clear').addEventListener('click', () => {
   if (artGroup) {
     scene.remove(artGroup);
     artGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
-    artGroup = null; lastTrimmed = null;
+    artGroup = null;
   }
   statusEl.innerText = '消しました。また読み込んでね';
 });
 
-// ─────────────────────────────────────────────
-//  ファイルアップロード
-// ─────────────────────────────────────────────
+// ── ファイルアップロード ──────────────────
 document.getElementById('btn-upload').addEventListener('click', () => document.getElementById('image-up').click());
 document.getElementById('image-up').addEventListener('change', e => {
   const file = e.target.files[0]; if (!file) return;
@@ -345,16 +299,14 @@ document.getElementById('image-up').addEventListener('change', e => {
   e.target.value = '';
 });
 
-// ─────────────────────────────────────────────
-//  カメラ撮影
-// ─────────────────────────────────────────────
+// ── カメラ撮影 ───────────────────────────
 const capOverlay = document.getElementById('cap-overlay');
 const prevCanvas = document.getElementById('prev-canvas');
 const prevCtx    = prevCanvas.getContext('2d');
 
 document.getElementById('btn-camera').addEventListener('click', () => {
   const vw = bgVideo.videoWidth||640, vh = bgVideo.videoHeight||480;
-  prevCanvas.width = vw; prevCanvas.height = vh;
+  prevCanvas.width=vw; prevCanvas.height=vh;
   prevCtx.drawImage(bgVideo, 0, 0, vw, vh);
   capOverlay.classList.add('show');
 });
@@ -367,11 +319,13 @@ document.getElementById('btn-use').addEventListener('click', () => {
 });
 
 // ─────────────────────────────────────────────
-//  ジョイスティック（X=左右、Z=前後）
+//  ジョイスティック
+//  artGroup.rotation.x = -PI/2 で立てているので座標系が変わる
+//  見た目の「左右」= x軸、「前後」= y軸（回転後はy→z方向）
 // ─────────────────────────────────────────────
 const joyBase = document.getElementById('joy-base');
 const knob    = document.getElementById('joy-knob');
-let joyOn = false, jx=0, jy=0;
+let joyOn=false, jx=0, jy=0;
 const JR=30, JS=0.006;
 
 joyBase.addEventListener('touchstart', e => {
@@ -386,8 +340,9 @@ window.addEventListener('touchmove', e => {
   const dist=Math.sqrt(dx*dx+dy*dy), cl=Math.min(dist,JR), ang=Math.atan2(dy,dx);
   knob.style.transform=`translate(${cl*Math.cos(ang)}px,${cl*Math.sin(ang)}px)`;
   if (artGroup) {
-    artGroup.position.x += dx*JS;
-    artGroup.position.z += dy*JS; // 前後
+    // 回転後の座標系：x=左右はそのまま、前後はy（回転でz方向に変換済み）
+    artGroup.position.x += dx * JS;
+    artGroup.position.y += dy * JS; // 回転後はyが前後方向になる
   }
   jx=t.clientX; jy=t.clientY;
 }, {passive:false});
@@ -398,27 +353,26 @@ window.addEventListener('touchend', () => {
   knob.style.transform='translate(0,0)';
 });
 
-// ─────────────────────────────────────────────
-//  上下ボタン（Y軸）
-// ─────────────────────────────────────────────
+// ── 上下ボタン（Y軸 = 高さ） ─────────────
+// 回転後の座標系で「高さ」はz軸
 const HS=0.07;
 let vTimer=null;
-const chY = d => { if(artGroup) artGroup.position.y+=d; };
-const stY = d => { chY(d); vTimer=setInterval(()=>chY(d),100); };
-const spY = () => clearInterval(vTimer);
+// 回転後：高さ方向はzではなく、artGroupのローカルy → ワールドのzになるが
+// positionはワールド座標で動かすのでzを動かす
+const chZ = d => { if(artGroup) artGroup.position.z += d; };
+const stZ = d => { chZ(d); vTimer=setInterval(()=>chZ(d),100); };
+const spZ = () => clearInterval(vTimer);
 
 ['touchstart','mousedown'].forEach(ev => {
-  document.getElementById('btn-up').addEventListener(ev, e=>{e.preventDefault();stY( HS);},{passive:false});
-  document.getElementById('btn-dn').addEventListener(ev, e=>{e.preventDefault();stY(-HS);},{passive:false});
+  document.getElementById('btn-up').addEventListener(ev, e=>{e.preventDefault();stZ(-HS);},{passive:false});
+  document.getElementById('btn-dn').addEventListener(ev, e=>{e.preventDefault();stZ( HS);},{passive:false});
 });
 ['touchend','mouseup'].forEach(ev => {
-  document.getElementById('btn-up').addEventListener(ev, spY);
-  document.getElementById('btn-dn').addEventListener(ev, spY);
+  document.getElementById('btn-up').addEventListener(ev, spZ);
+  document.getElementById('btn-dn').addEventListener(ev, spZ);
 });
 
-// ─────────────────────────────────────────────
-//  レンダーループ
-// ─────────────────────────────────────────────
+// ── レンダーループ ───────────────────────
 (function loop() { requestAnimationFrame(loop); renderer.render(scene, cam); })();
 </script>
 </body>
