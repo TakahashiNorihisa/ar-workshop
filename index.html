@@ -61,7 +61,7 @@
         let dragging = false, sX, sY;
 
         up.addEventListener('change', function(e) {
-            const file = e.target.files; // 根本解決：でBlobを取得
+            const file = e.target.files[0]; // 根本解決：でBlobを取得
             if (!file) return;
 
             st.innerText = "切り抜き中...";
