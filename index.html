@@ -1,449 +1,137 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>らくがきAR</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { overflow: hidden; background: #000; font-family: sans-serif; touch-action: none; }
-
-    #bg-video {
-      position: fixed; inset: 0; width: 100%; height: 100%;
-      object-fit: cover; z-index: 0;
-    }
-    #three-canvas {
-      position: fixed; inset: 0; width: 100%; height: 100%;
-      z-index: 1; pointer-events: none;
-    }
-
-    /* UIパネル */
-    #ui-panel {
-      position: fixed; top: 10px; left: 10px; z-index: 100;
-      background: rgba(0,0,0,0.75); color: #fff;
-      padding: 10px 12px; border-radius: 10px;
-      font-size: 12px; line-height: 2; max-width: 240px;
-    }
-    #ui-panel b { font-size: 13px; }
-    #status { color: #aef; font-size: 11px; display: block; margin-top: 2px; }
-    .btn-row { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
-    .ui-btn {
-      flex: 1; min-width: 60px; padding: 6px 4px;
-      background: rgba(255,255,255,0.15);
-      border: 1px solid rgba(255,255,255,0.35);
-      border-radius: 6px; color: #fff; font-size: 11px;
-      cursor: pointer; text-align: center; user-select: none;
-    }
-    .ui-btn.danger { background: rgba(255,80,80,0.3); border-color: rgba(255,100,100,0.5); }
-    #image-up { display: none; }
-
-    /* 撮影プレビュー */
-    #capture-overlay {
-      display: none; position: fixed; inset: 0; z-index: 200;
-      background: rgba(0,0,0,0.9);
-      flex-direction: column; align-items: center; justify-content: center; gap: 16px;
-    }
-    #capture-overlay.show { display: flex; }
-    #preview-canvas { border-radius: 8px; max-width: 90vw; max-height: 60vh; }
-    .cap-row { display: flex; gap: 16px; }
-    .cap-btn { padding: 12px 28px; border-radius: 8px; border: none; font-size: 15px; cursor: pointer; font-weight: bold; }
-    #btn-retake { background: #555; color: #fff; }
-    #btn-use    { background: #4af; color: #000; }
-
-    /* ジョイスティック */
-    #joy-base {
-      position: fixed; bottom: 40px; left: 40px;
-      width: 110px; height: 110px;
-      background: rgba(255,255,255,0.12);
-      border: 2px solid rgba(255,255,255,0.35);
-      border-radius: 50%; z-index: 100; touch-action: none;
-    }
-    #joy-knob {
-      position: absolute; top: 50%; left: 50%;
-      width: 52px; height: 52px; margin: -26px 0 0 -26px;
-      background: rgba(255,255,255,0.85); border-radius: 50%;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
-      transition: transform 0.12s ease-out; pointer-events: none;
-    }
-
-    /* 高さボタン */
-    #height-ctrl {
-      position: fixed; bottom: 40px; right: 30px;
-      z-index: 100; display: flex; flex-direction: column; gap: 10px;
-    }
-    .hbtn {
-      width: 52px; height: 52px;
-      background: rgba(255,255,255,0.8); border: none; border-radius: 50%;
-      font-size: 24px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.4);
-      user-select: none; -webkit-user-select: none;
-      display: flex; align-items: center; justify-content: center;
-    }
-
-    /* ラベル */
-    #joy-label {
-      position: fixed; bottom: 155px; left: 55px;
-      z-index: 100; color: rgba(255,255,255,0.5); font-size: 10px;
-    }
-    #h-label {
-      position: fixed; bottom: 155px; right: 34px;
-      z-index: 100; color: rgba(255,255,255,0.5); font-size: 10px;
-    }
-  </style>
-</head>
-<body>
-
-  <video id="bg-video" autoplay playsinline muted></video>
-  <canvas id="three-canvas"></canvas>
-
-  <div id="ui-panel">
-    <b>🎨 らくがきAR</b>
-    <div class="btn-row">
-      <div class="ui-btn" id="btn-camera">📷 撮影</div>
-      <div class="ui-btn" id="btn-upload">🖼️ 選択</div>
-      <div class="ui-btn danger" id="btn-clear">🗑️ 消す</div>
-    </div>
-    <input type="file" id="image-up" accept="image/*">
-    <span id="status">画像をアップロードか撮影してね</span>
-  </div>
-
-  <div id="capture-overlay">
-    <canvas id="preview-canvas"></canvas>
-    <div class="cap-row">
-      <button class="cap-btn" id="btn-retake">📷 撮り直し</button>
-      <button class="cap-btn" id="btn-use">✅ これを使う</button>
-    </div>
-  </div>
-
-  <div id="joy-base"><div id="joy-knob"></div></div>
-  <div id="joy-label">← 左右・奥手前 →</div>
-
-  <div id="height-ctrl">
-    <button class="hbtn" id="btn-up">▲</button>
-    <button class="hbtn" id="btn-down">▼</button>
-  </div>
-  <div id="h-label">上下</div>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script>
-  // ============================================================
-  //  カメラ映像（背景）
-  // ============================================================
-  const bgVideo = document.getElementById('bg-video');
-  const status  = document.getElementById('status');
-  navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
-    .then(s => bgVideo.srcObject = s)
-    .catch(() => status.innerText = 'カメラが使えません');
-
-  // ============================================================
-  //  Three.js セットアップ
-  //  カメラは俯瞰ではなく正面から見る配置
-  //  オブジェクトは Y 軸方向に「立てて」配置
-  // ============================================================
-  const canvas3  = document.getElementById('three-canvas');
-  const renderer = new THREE.WebGLRenderer({ canvas: canvas3, alpha: true, antialias: true });
-  renderer.setPixelRatio(window.devicePixelRatio);
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.shadowMap.enabled = false;
-
-  const scene = new THREE.Scene();
-
-  // カメラ：Z軸正方向から原点を見る（人が正面から見る視点）
-  const cam = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.001, 100);
-  cam.position.set(0, 0, 4);  // Z=4 から原点(0,0,0)を見る
-  cam.lookAt(0, 0, 0);
-
-  scene.add(new THREE.AmbientLight(0xffffff, 1.6));
-  const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-  dir.position.set(2, 4, 3); scene.add(dir);
-  const dir2 = new THREE.DirectionalLight(0xffffff, 0.3);
-  dir2.position.set(-2, -1, 2); scene.add(dir2);
-
-  window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    cam.aspect = window.innerWidth / window.innerHeight;
-    cam.updateProjectionMatrix();
-  });
-
-  let artGroup = null;
-  let lastTrimmed = null;
-
-  // ============================================================
-  //  白背景を透過処理
-  //  単純な「白だけ」ではなく「明るい色全体」を透過
-  //  子供の絵は薄い色や水彩風もある → 閾値を調整可能
-  // ============================================================
-  function removeBackground(img) {
-    const SIZE = 1024;
-    const c = document.createElement('canvas');
-    c.width = SIZE; c.height = SIZE;
-    const ctx = c.getContext('2d');
-
-    // 白背景を敷いてから描画（PNGの透過領域対策）
-    ctx.fillStyle = 'white';
-    ctx.fillRect(0, 0, SIZE, SIZE);
-    ctx.drawImage(img, 0, 0, SIZE, SIZE);
-
-    const id = ctx.getImageData(0, 0, SIZE, SIZE);
-    const d  = id.data;
-
-    for (let i = 0; i < d.length; i += 4) {
-      const r = d[i], g = d[i+1], b = d[i+2];
-      // 明度が高い（白っぽい）ピクセルを透明化
-      // 閾値215：白い紙の部分を消しつつ薄い色は残す
-      const brightness = (r + g + b) / 3;
-      if (brightness > 215) {
-        d[i+3] = 0;
-      }
-    }
-    ctx.putImageData(id, 0, 0);
-    return c;
-  }
-
-  // ============================================================
-  //  輪郭トリミング（バウンディングボックス）
-  //  不透明ピクセルの範囲を検出して切り抜く
-  // ============================================================
-  function trimBounds(src) {
-    const w = src.width, h = src.height;
-    const d = src.getContext('2d').getImageData(0, 0, w, h).data;
-
-    let x0 = w, x1 = 0, y0 = h, y1 = 0;
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        if (d[(y * w + x) * 4 + 3] > 20) {  // alpha > 20 で不透明とみなす
-          if (x < x0) x0 = x;
-          if (x > x1) x1 = x;
-          if (y < y0) y0 = y;
-          if (y > y1) y1 = y;
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Rakugaki 3D Pro v1.2.0</title>
+    <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
+    <!-- AR.jsライブラリ（マーカーレスでもカメラ映像を表示するために使用） -->
+    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
+    
+    <style>
+        body { margin: 0; overflow: hidden; touch-action: none; }
+        #ui-panel {
+            position: fixed; top: 10px; left: 10px; z-index: 1000;
+            background: rgba(0,0,0,0.8); color: white; padding: 12px; border-radius: 10px;
         }
-      }
-    }
+        #joy-base {
+            position: fixed; bottom: 40px; left: 40px; width: 100px; height: 100px;
+            background: rgba(255,255,255,0.2); border-radius: 50%; z-index: 2000;
+            border: 3px solid rgba(255,255,255,0.4);
+        }
+        #joy-knob {
+            position: absolute; top: 25px; left: 25px; width: 50px; height: 50px;
+            background: white; border-radius: 50%; transition: transform 0.1s;
+        }
+    </style>
+</head>
 
-    // 描かれた内容がない場合はそのまま返す
-    if (x0 >= x1 || y0 >= y1) {
-      status.innerText = '⚠️ 絵が検出できませんでした。別の画像を試してね';
-      return src;
-    }
+<body style="margin:0px; overflow:hidden;">
+    <div id="ui-panel">
+        <b>VERSION: v1.2.0 (3D & Trim)</b><br>
+        <input type="file" id="up" accept="image/*">
+        <div id="st" style="font-size:11px; margin-top:5px;">えをえらぶと 画面にでるよ</div>
+    </div>
 
-    const pad = 8; // 少し余白を持たせる
-    x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad);
-    x1 = Math.min(w, x1 + pad); y1 = Math.min(h, y1 + pad);
+    <div id="joy-base"><div id="joy-knob"></div></div>
 
-    const dst = document.createElement('canvas');
-    dst.width  = x1 - x0;
-    dst.height = y1 - y0;
-    dst.getContext('2d').drawImage(src, x0, y0, dst.width, dst.height, 0, 0, dst.width, dst.height);
-    return dst;
-  }
+    <!-- 画面中央に出現させるため、マーカー(a-marker)を使わずシーンに直接配置 -->
+    <a-scene embedded arjs="debugUIEnabled: false; trackingMethod: best;">
+        <a-entity id="rakugaki-container" position="0 0 -3">
+            <!-- 
+                a-box を使用して厚みを出す。depth="0.05" で約5cm（スケール依存）の厚み。
+                初期状態は非表示(visible: false)
+            -->
+            <a-box id="rakugaki-obj" 
+                   position="0 0 0" 
+                   depth="0.05" width="1" height="1"
+                   material="transparent: true; opacity: 0; shader: flat"
+                   visible="false">
+            </a-box>
+        </a-entity>
+        <a-entity camera></a-entity>
+    </a-scene>
 
-  // ============================================================
-  //  3Dオブジェクト生成
-  //  ・前面・後面：テクスチャ付きPlane
-  //  ・4辺のエッジ：薄いBoxGeometryで厚み2mm相当を表現
-  //  ・全体をY軸に垂直に「立てて」配置（rotationなし = XY平面に平行 = 正面向き）
-  // ============================================================
-  function buildObject(trimmed) {
-    // 既存オブジェクトを削除
-    if (artGroup) {
-      scene.remove(artGroup);
-      artGroup.traverse(o => {
-        if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); }
-      });
-      artGroup = null;
-    }
+    <script>
+        const up = document.getElementById('up');
+        const st = document.getElementById('st');
+        const obj = document.getElementById('rakugaki-obj');
+        const knob = document.getElementById('joy-knob');
+        let pos = { x: 0, y: 0, z: -3 }; // 中央初期位置
+        let dragging = false, sX, sY;
 
-    const aspect = trimmed.width / trimmed.height;
-    const H = 1.4;          // 高さ (Three.js単位)
-    const W = H * aspect;   // アスペクト比から幅を算出
-    const D = 0.04;         // 厚み (約2mm相当、Three.js単位)
+        up.addEventListener('change', function(e) {
+            const file = e.target.files; // 根本解決：でBlobを取得
+            if (!file) return;
 
-    const tex = new THREE.CanvasTexture(trimmed);
-    tex.needsUpdate = true;
+            st.innerText = "切り抜き中...";
+            const reader = new FileReader();
+            reader.onload = function(ev) {
+                const img = new Image();
+                img.onload = function() {
+                    const tempCvs = document.createElement('canvas');
+                    const tempCtx = tempCvs.getContext('2d');
+                    tempCvs.width = img.width; tempCvs.height = img.height;
+                    tempCtx.drawImage(img, 0, 0);
 
-    artGroup = new THREE.Group();
+                    // 1. 輪郭をスキャンしてトリミング範囲を決定
+                    const imgData = tempCtx.getImageData(0, 0, img.width, img.height);
+                    const d = imgData.data;
+                    let minX = img.width, minY = img.height, maxX = 0, maxY = 0;
+                    let found = false;
 
-    // --- 前面（絵が見える面） ---
-    const frontGeo = new THREE.PlaneGeometry(W, H);
-    const frontMat = new THREE.MeshBasicMaterial({
-      map: tex, transparent: true, side: THREE.FrontSide, depthWrite: false
-    });
-    const frontMesh = new THREE.Mesh(frontGeo, frontMat);
-    frontMesh.position.z = D / 2;
-    artGroup.add(frontMesh);
+                    for (let y = 0; y < img.height; y++) {
+                        for (let x = 0; x < img.width; x++) {
+                            const i = (y * img.width + x) * 4;
+                            // 白(>200)以外を「絵」として認識
+                            if (d[i] < 200 || d[i+1] < 200 || d[i+2] < 200) {
+                                if (x < minX) minX = x; if (x > maxX) maxX = x;
+                                if (y < minY) minY = y; if (y > maxY) maxY = y;
+                                found = true;
+                            } else {
+                                d[i+3] = 0; // ついでに背景を透明化
+                            }
+                        }
+                    }
 
-    // --- 後面（裏から見たとき用） ---
-    const backGeo = new THREE.PlaneGeometry(W, H);
-    const backMat = new THREE.MeshBasicMaterial({
-      map: tex, transparent: true, side: THREE.FrontSide, depthWrite: false
-    });
-    const backMesh = new THREE.Mesh(backGeo, backMat);
-    backMesh.position.z = -D / 2;
-    backMesh.rotation.y = Math.PI;
-    artGroup.add(backMesh);
+                    if (!found) { st.innerText = "えが みつかりませんでした"; return; }
 
-    // --- 4辺のエッジ（厚み表現） ---
-    const edgeMat = new THREE.MeshLambertMaterial({ color: 0xeeeeee });
+                    // 2. 切り抜いた絵を新しいCanvasに描画
+                    const trimW = maxX - minX;
+                    const trimH = maxY - minY;
+                    const finalCvs = document.createElement('canvas');
+                    finalCvs.width = 512; finalCvs.height = 512;
+                    const finalCtx = finalCvs.getContext('2d');
+                    
+                    // アスペクト比を維持して中央に配置
+                    const scale = Math.min(512 / trimW, 512 / trimH);
+                    finalCtx.putImageData(imgData, -minX, -minY, minX, minY, trimW, trimH);
 
-    // 上辺
-    const topGeo = new THREE.BoxGeometry(W, D, D);
-    const top = new THREE.Mesh(topGeo, edgeMat);
-    top.position.set(0, H / 2, 0);
-    artGroup.add(top);
+                    // 3. 3Dオブジェクト（a-box）に反映
+                    obj.setAttribute('visible', 'true');
+                    obj.setAttribute('width', (trimW / 500)); // 紙のサイズではなく絵の比率に合わせる
+                    obj.setAttribute('height', (trimH / 500));
+                    obj.setAttribute('material', { src: tempCvs, opacity: 1 });
+                    st.innerText = "完了！スティックで動かしてね";
+                };
+                img.src = ev.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
 
-    // 下辺
-    const btm = new THREE.Mesh(topGeo.clone(), edgeMat.clone());
-    btm.position.set(0, -H / 2, 0);
-    artGroup.add(btm);
-
-    // 左辺
-    const leftGeo = new THREE.BoxGeometry(D, H, D);
-    const left = new THREE.Mesh(leftGeo, edgeMat.clone());
-    left.position.set(-W / 2, 0, 0);
-    artGroup.add(left);
-
-    // 右辺
-    const right = new THREE.Mesh(leftGeo.clone(), edgeMat.clone());
-    right.position.set(W / 2, 0, 0);
-    artGroup.add(right);
-
-    // --- 初期位置：画面中央、少し前に出す ---
-    artGroup.position.set(0, 0, 0);
-
-    // ★ 立てる：Three.jsのデフォルトでPlaneはXY平面（カメラ正面向き）なので
-    //   rotation不要。カメラがZ軸方向から見ているので「立っている」状態になる。
-    scene.add(artGroup);
-
-    status.innerText = '完了！コントローラーで動かしてね ✨';
-  }
-
-  // ============================================================
-  //  画像処理エントリポイント
-  // ============================================================
-  function processImg(img) {
-    status.innerText = '透過・トリミング処理中...';
-    // setTimeout で UI が更新されてから処理
-    setTimeout(() => {
-      const transparent = removeBackground(img);
-      const trimmed     = trimBounds(transparent);
-      lastTrimmed = trimmed;
-      buildObject(trimmed);
-    }, 50);
-  }
-
-  // ============================================================
-  //  消すボタン
-  // ============================================================
-  document.getElementById('btn-clear').addEventListener('click', () => {
-    if (artGroup) {
-      scene.remove(artGroup);
-      artGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
-      artGroup = null;
-      lastTrimmed = null;
-    }
-    status.innerText = '消しました。また画像を読み込んでね';
-  });
-
-  // ============================================================
-  //  ファイルアップロード
-  // ============================================================
-  document.getElementById('btn-upload').addEventListener('click', () => {
-    document.getElementById('image-up').click();
-  });
-  document.getElementById('image-up').addEventListener('change', e => {
-    const file = e.target.files[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => {
-      const img = new Image();
-      img.onload = () => processImg(img);
-      img.src = ev.target.result;
-    };
-    reader.readAsDataURL(file);
-    e.target.value = ''; // 同じファイルの再選択を可能に
-  });
-
-  // ============================================================
-  //  カメラ撮影
-  // ============================================================
-  const overlay    = document.getElementById('capture-overlay');
-  const prevCanvas = document.getElementById('preview-canvas');
-  const prevCtx    = prevCanvas.getContext('2d');
-
-  document.getElementById('btn-camera').addEventListener('click', () => {
-    const vw = bgVideo.videoWidth || 640, vh = bgVideo.videoHeight || 480;
-    prevCanvas.width = vw; prevCanvas.height = vh;
-    prevCtx.drawImage(bgVideo, 0, 0, vw, vh);
-    overlay.classList.add('show');
-  });
-  document.getElementById('btn-retake').addEventListener('click', () => overlay.classList.remove('show'));
-  document.getElementById('btn-use').addEventListener('click', () => {
-    overlay.classList.remove('show');
-    const img = new Image();
-    img.onload = () => processImg(img);
-    img.src = prevCanvas.toDataURL('image/png');
-  });
-
-  // ============================================================
-  //  ジョイスティック（左右 X / 前後 Z）
-  // ============================================================
-  const joyBase = document.getElementById('joy-base');
-  const knob    = document.getElementById('joy-knob');
-  let joyActive = false, jx = 0, jy = 0;
-  const JR = 30;   // ノブ最大変位px
-  const JS = 0.005; // 移動速度
-
-  joyBase.addEventListener('touchstart', e => {
-    e.preventDefault(); joyActive = true;
-    jx = e.touches[0].clientX; jy = e.touches[0].clientY;
-    knob.style.transition = 'none';
-  }, { passive: false });
-
-  window.addEventListener('touchmove', e => {
-    if (!joyActive) return; e.preventDefault();
-    const t = e.touches[0];
-    const dx = t.clientX - jx, dy = t.clientY - jy;
-    const dist = Math.sqrt(dx*dx + dy*dy);
-    const cl   = Math.min(dist, JR);
-    const ang  = Math.atan2(dy, dx);
-    knob.style.transform = `translate(${cl*Math.cos(ang)}px,${cl*Math.sin(ang)}px)`;
-
-    if (artGroup) {
-      artGroup.position.x += dx * JS;   // 左右
-      artGroup.position.z -= dy * JS;   // 前後（画面の上下 → Z軸）
-    }
-    jx = t.clientX; jy = t.clientY;
-  }, { passive: false });
-
-  window.addEventListener('touchend', () => {
-    joyActive = false;
-    knob.style.transition = 'transform 0.15s ease-out';
-    knob.style.transform  = 'translate(0,0)';
-  });
-
-  // ============================================================
-  //  ▲▼ボタン（上下 Y軸）
-  // ============================================================
-  const HS = 0.06;
-  let htTimer = null;
-  const changeY = d => { if (artGroup) artGroup.position.y += d; };
-  const startY  = d => { changeY(d); htTimer = setInterval(() => changeY(d), 100); };
-  const stopY   = ()  => clearInterval(htTimer);
-
-  ['touchstart', 'mousedown'].forEach(ev => {
-    document.getElementById('btn-up').addEventListener(ev,   e => { e.preventDefault(); startY( HS); }, { passive: false });
-    document.getElementById('btn-down').addEventListener(ev, e => { e.preventDefault(); startY(-HS); }, { passive: false });
-  });
-  ['touchend', 'mouseup'].forEach(ev => {
-    document.getElementById('btn-up').addEventListener(ev,   stopY);
-    document.getElementById('btn-down').addEventListener(ev, stopY);
-  });
-
-  // ============================================================
-  //  レンダーループ
-  // ============================================================
-  (function animate() {
-    requestAnimationFrame(animate);
-    renderer.render(scene, cam);
-  })();
-  </script>
+        // コントローラー操作（移動）
+        knob.addEventListener('touchstart', (e) => { dragging = true; sX = e.touches.clientX; sY = e.touches.clientY; knob.style.transition = "none"; });
+        window.addEventListener('touchmove', (e) => {
+            if (!dragging) return;
+            let mX = e.touches.clientX, mY = e.touches.clientY;
+            knob.style.transform = `translate(${Math.max(-25, Math.min(25, mX-sX))}px, ${Math.max(-25, Math.min(25, mY-sY))}px)`;
+            
+            pos.x += (mX - sX) * 0.01;
+            pos.y -= (mY - sY) * 0.01; // Y軸移動に変更
+            document.getElementById('rakugaki-container').setAttribute('position', `${pos.x} ${pos.y} ${pos.z}`);
+            sX = mX; sY = mY;
+        });
+        window.addEventListener('touchend', () => { dragging = false; knob.style.transform = "translate(0,0)"; knob.style.transition = "transform 0.2s"; });
+    </script>
 </body>
 </html>
