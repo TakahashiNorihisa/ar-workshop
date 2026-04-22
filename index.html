@@ -3,20 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>らくがきAR v9.0</title>
+  <title>らくがきAR v10.0</title>
+
+  <!-- A-Frame 1.0.4 (動作確認済みバージョン) -->
+  <script src="https://aframe.io/releases/1.0.4/aframe.min.js"></script>
+
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { overflow: hidden; background: #000; font-family: sans-serif; touch-action: none; }
-    #bg-video {
-      position: fixed; inset: 0; width: 100%; height: 100%;
-      object-fit: cover; z-index: 0;
-    }
-    #three-canvas {
-      position: fixed; inset: 0; width: 100%; height: 100%;
-      z-index: 1; pointer-events: none;
-    }
+    body { overflow: hidden; touch-action: none; }
+
+    /* A-Frameシーンが背景のカメラ映像を表示する */
+
     #ui-panel {
-      position: fixed; top: 10px; left: 10px; z-index: 100;
+      position: fixed; top: 10px; left: 10px; z-index: 1000;
       background: rgba(0,0,0,0.78); color: #fff;
       padding: 10px 12px; border-radius: 10px;
       font-size: 12px; line-height: 1.9; max-width: 260px;
@@ -35,7 +34,7 @@
 
     /* トリミング画面 */
     #crop-screen {
-      display: none; position: fixed; inset: 0; z-index: 300;
+      display: none; position: fixed; inset: 0; z-index: 500;
       background: #111; flex-direction: column;
     }
     #crop-screen.show { display: flex; }
@@ -61,7 +60,7 @@
 
     /* コントローラー */
     #joy-base {
-      position: fixed; bottom: 38px; left: 38px; z-index: 100;
+      position: fixed; bottom: 38px; left: 38px; z-index: 1000;
       width: 110px; height: 110px; border-radius: 50%; touch-action: none;
       background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.3);
     }
@@ -73,11 +72,11 @@
       transition: transform 0.1s ease-out; pointer-events: none;
     }
     #joy-label {
-      position: fixed; bottom: 152px; left: 48px; z-index: 100;
+      position: fixed; bottom: 152px; left: 48px; z-index: 1000;
       color: rgba(255,255,255,0.5); font-size: 10px; text-align: center; width: 90px;
     }
     #vert-ctrl {
-      position: fixed; bottom: 38px; right: 28px; z-index: 100;
+      position: fixed; bottom: 38px; right: 28px; z-index: 1000;
       display: flex; flex-direction: column; gap: 8px;
     }
     .vbtn {
@@ -87,18 +86,16 @@
       display: flex; align-items: center; justify-content: center;
     }
     #v-label {
-      position: fixed; bottom: 152px; right: 32px; z-index: 100;
+      position: fixed; bottom: 152px; right: 32px; z-index: 1000;
       color: rgba(255,255,255,0.5); font-size: 10px; text-align: center; width: 44px;
     }
   </style>
 </head>
 <body>
 
-<video id="bg-video" autoplay playsinline muted></video>
-<canvas id="three-canvas"></canvas>
-
+<!-- UIパネル -->
 <div id="ui-panel">
-  <b>🎨 らくがきAR</b><span id="ver">v9.0</span>
+  <b>🎨 らくがきAR</b><span id="ver">v10.0</span>
   <div class="btn-row">
     <div class="ui-btn" id="btn-camera">📷 撮影</div>
     <div class="ui-btn" id="btn-upload">🖼️ 選択</div>
@@ -108,9 +105,10 @@
   <span id="status">画像をアップロードか撮影してね</span>
 </div>
 
+<!-- トリミング画面 -->
 <div id="crop-screen">
   <div id="crop-header">
-    <em>指でなぞって</em>絵の輪郭を囲んでね。囲んだ外側が緑色になります。
+    <em>指でなぞって</em>絵の輪郭を囲んでね。外側が自動で透明になります。
   </div>
   <div id="crop-wrap">
     <canvas id="photo-canvas"></canvas>
@@ -123,6 +121,7 @@
   </div>
 </div>
 
+<!-- コントローラー -->
 <div id="joy-base"><div id="joy-knob"></div></div>
 <div id="joy-label">左右・前後</div>
 <div id="vert-ctrl">
@@ -131,180 +130,174 @@
 </div>
 <div id="v-label">上下</div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- A-Frameシーン
+     カメラ映像はA-Frame自身が背景として表示する
+     embedded: canvasをページに埋め込む
+     vr-mode-ui: VRボタンを非表示
+-->
+<a-scene
+  embedded
+  vr-mode-ui="enabled: false"
+  renderer="alpha: true"
+  style="position:fixed;inset:0;z-index:100;"
+>
+  <!-- 絵を表示するplane。idで参照してJSから操作 -->
+  <a-plane
+    id="art-plane"
+    visible="false"
+    position="0 0 -3"
+    rotation="0 0 0"
+    width="1" height="1"
+    material="transparent:true; opacity:1; shader:flat; side:double"
+  ></a-plane>
+
+  <!-- 厚みを表現するbox（planeの裏に配置） -->
+  <a-box
+    id="art-box"
+    visible="false"
+    position="0 0 -3.03"
+    width="1" height="1" depth="0.05"
+    color="#f5f0e8"
+  ></a-box>
+
+  <!-- カメラ（固定視点） -->
+  <a-entity camera look-controls="enabled:false" wasd-controls="enabled:false"></a-entity>
+</a-scene>
+
 <script>
 'use strict';
 
-// ═══════════════════════════
-//  カメラ映像
-// ═══════════════════════════
-const bgVideo  = document.getElementById('bg-video');
 const statusEl = document.getElementById('status');
-navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
-  .then(s => { bgVideo.srcObject = s; })
-  .catch(() => { statusEl.innerText = 'カメラが使えません'; });
 
-// ═══════════════════════════
-//  Three.js
-//
-//  カメラ: position(0, 0, 5), lookAt(0,0,0)
-//  → PlaneGeometryはXY平面、法線+Z → カメラ正面 = 「立っている」
-//  artGroup.rotation は一切触らない
-// ═══════════════════════════
-const c3 = document.getElementById('three-canvas');
-const renderer = new THREE.WebGLRenderer({ canvas: c3, alpha: true, antialias: true });
-renderer.setPixelRatio(window.devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setClearColor(0x000000, 0);
+// ════════════════════════════════════
+//  A-Frameのplane/box要素を取得
+//  sceneが初期化されるまで待つ
+// ════════════════════════════════════
+let artPlane = null;
+let artBox   = null;
+let currentPos = { x: 0, y: 0, z: -3 };
+let currentRot = { y: 0, x: 0 };
 
-const scene = new THREE.Scene();
-const cam = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 200);
-cam.position.set(0, 0, 5);
-cam.lookAt(0, 0, 0);
-
-scene.add(new THREE.AmbientLight(0xffffff, 2.5));
-const dl = new THREE.DirectionalLight(0xffffff, 0.8);
-dl.position.set(2, 3, 5); scene.add(dl);
-
-window.addEventListener('resize', () => {
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  cam.aspect = window.innerWidth / window.innerHeight;
-  cam.updateProjectionMatrix();
+document.querySelector('a-scene').addEventListener('loaded', () => {
+  artPlane = document.getElementById('art-plane');
+  artBox   = document.getElementById('art-box');
 });
 
-let artGroup = null;
+// ════════════════════════════════════
+//  フリーハンド切り抜き
+//  ★透過の仕組み★
+//  1. バウンディングボックスで切り出したcanvasを作る
+//  2. そのcanvasのgetImageData()でピクセルを直接取得
+//  3. フリーハンドパスの外側のピクセルのalpha値を0にする
+//     (isPointInPath APIを使って内外判定)
+//  4. putImageData()で書き戻す
+//  → WebGLに渡す前にピクセルレベルで透明化するので確実
+// ════════════════════════════════════
+function makeCroppedCanvas(photoCvs, drawPts) {
+  // drawCanvas座標 → photoCvs実ピクセル座標
+  const scX = photoCvs.width  / drawCvs.width;
+  const scY = photoCvs.height / drawCvs.height;
+  const pts = drawPts.map(p => ({ x: p.x * scX, y: p.y * scY }));
 
-// ═══════════════════════════════════════════════
-//  クロマキー透過テクスチャ生成
-//
-//  手順:
-//  1. バウンディングボックスで切り出し
-//  2. 選択範囲外を純粋な緑 rgb(0,255,0) で塗る
-//  3. Three.jsのカスタムシェーダマテリアルで
-//     rgb(0,255,0) に近いピクセルを discard する
-// ═══════════════════════════════════════════════
-function makeChromaCanvas(photoCvs, pts) {
   // バウンディングボックス
-  let x0=Infinity, y0=Infinity, x1=-Infinity, y1=-Infinity;
-  pts.forEach(p => {
-    if (p.x<x0) x0=p.x; if (p.x>x1) x1=p.x;
-    if (p.y<y0) y0=p.y; if (p.y>y1) y1=p.y;
+  let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+  pts.forEach(p=>{
+    if(p.x<x0)x0=p.x; if(p.x>x1)x1=p.x;
+    if(p.y<y0)y0=p.y; if(p.y>y1)y1=p.y;
   });
   const pad=8;
-  x0=Math.max(0,Math.floor(x0-pad)); y0=Math.max(0,Math.floor(y0-pad));
+  x0=Math.max(0,Math.floor(x0-pad));   y0=Math.max(0,Math.floor(y0-pad));
   x1=Math.min(photoCvs.width,Math.ceil(x1+pad));
   y1=Math.min(photoCvs.height,Math.ceil(y1+pad));
   const cw=x1-x0, ch=y1-y0;
-  if (cw<4||ch<4) return null;
+  if(cw<4||ch<4) return null;
 
+  // 切り出しcanvas
   const out = document.createElement('canvas');
   out.width=cw; out.height=ch;
   const ctx = out.getContext('2d');
+  ctx.drawImage(photoCvs, x0,y0,cw,ch, 0,0,cw,ch);
 
-  // ① まず全体を純粋な緑(クロマキー色)で塗る
-  ctx.fillStyle = 'rgb(0,255,0)';
-  ctx.fillRect(0, 0, cw, ch);
+  // ★ ピクセル直接操作で外側を透明化 ★
+  // isPointInPath() でフリーハンドパスの内外を判定
+  const id = ctx.getImageData(0,0,cw,ch);
+  const data = id.data;
 
-  // ② フリーハンドパスの内側だけ写真を上書き
-  ctx.save();
+  // パスをcanvasに登録（isPointInPath用）
   ctx.beginPath();
   ctx.moveTo(pts[0].x-x0, pts[0].y-y0);
-  for (let i=1; i<pts.length; i++) ctx.lineTo(pts[i].x-x0, pts[i].y-y0);
+  for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x-x0, pts[i].y-y0);
   ctx.closePath();
-  ctx.clip();
-  ctx.drawImage(photoCvs, x0, y0, cw, ch, 0, 0, cw, ch);
-  ctx.restore();
+
+  for(let y=0;y<ch;y++){
+    for(let x=0;x<cw;x++){
+      // isPointInPath: パスの外側なら透明に
+      if(!ctx.isPointInPath(x+0.5, y+0.5)){
+        data[(y*cw+x)*4+3] = 0; // alpha=0
+      }
+    }
+  }
+  ctx.putImageData(id,0,0);
 
   return { canvas: out, aspect: cw/ch };
 }
 
-// ═══════════════════════════════════════════════
-//  カスタムシェーダマテリアル（クロマキー除去）
-//  rgb(0,255,0) に近いピクセルを discard する
-// ═══════════════════════════════════════════════
-function makeChromaMaterial(tex) {
-  return new THREE.ShaderMaterial({
-    uniforms: {
-      map:        { value: tex },
-      keyColor:   { value: new THREE.Color(0, 1, 0) }, // 純緑
-      threshold:  { value: 0.35 }  // 感度（大きいほど広範囲を透過）
-    },
-    vertexShader: `
-      varying vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: `
-      uniform sampler2D map;
-      uniform vec3 keyColor;
-      uniform float threshold;
-      varying vec2 vUv;
-      void main() {
-        vec4 color = texture2D(map, vUv);
-        float dist = distance(color.rgb, keyColor);
-        if (dist < threshold) discard;
-        gl_FragColor = color;
-      }
-    `,
-    transparent: true,
-    side: THREE.DoubleSide,
-  });
-}
-
-// ═══════════════════════════════════════════════
-//  3Dオブジェクト生成
-//  ★ rotation を一切かけない → 立っている
-//  ★ カスタムシェーダで緑を透過
-//  ★ ExtrudeGeometryで厚みつき
-// ═══════════════════════════════════════════════
-function buildObject(chromaCanvas, aspect) {
-  if (artGroup) {
-    scene.remove(artGroup);
-    artGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
-    artGroup = null;
+// ════════════════════════════════════
+//  A-Frameのplaneにテクスチャを設定
+//  canvas.toDataURL()でDataURLに変換してsrcに渡す
+// ════════════════════════════════════
+function applyTexture(result) {
+  if (!artPlane || !artBox) {
+    setTimeout(()=>applyTexture(result), 100);
+    return;
   }
 
-  const tex = new THREE.CanvasTexture(chromaCanvas);
-  tex.minFilter = THREE.LinearFilter;
-  tex.magFilter = THREE.LinearFilter;
-  tex.needsUpdate = true;
+  const { canvas, aspect } = result;
+  const dataURL = canvas.toDataURL('image/png');
 
-  const H3 = 1.6, W3 = H3 * aspect, THICK = 0.05;
-  artGroup = new THREE.Group();
-  // ★ rotation なし
+  // planeのサイズをアスペクト比に合わせる
+  const H = 1.4, W = H * aspect;
 
-  // 厚みのある板（エッジ部分）
-  const shape = new THREE.Shape();
-  shape.moveTo(-W3/2, -H3/2); shape.lineTo( W3/2, -H3/2);
-  shape.lineTo( W3/2,  H3/2); shape.lineTo(-W3/2,  H3/2);
-  shape.closePath();
-  const extGeo = new THREE.ExtrudeGeometry(shape, { depth: THICK, bevelEnabled: false });
-  extGeo.translate(0, 0, -THICK/2);
-  artGroup.add(new THREE.Mesh(extGeo, new THREE.MeshLambertMaterial({ color: 0xf5f0e8 })));
+  artPlane.setAttribute('width',  W);
+  artPlane.setAttribute('height', H);
+  artPlane.setAttribute('material', {
+    src: dataURL,
+    transparent: true,
+    opacity: 1,
+    shader: 'flat',
+    side: 'double',
+    alphaTest: 0.1,
+  });
+  artPlane.setAttribute('visible', true);
 
-  // 前面・後面にクロマキーシェーダを適用したPlane
-  const mat = makeChromaMaterial(tex);
-  const geo = new THREE.PlaneGeometry(W3, H3);
+  // boxも同じサイズに
+  artBox.setAttribute('width',  W);
+  artBox.setAttribute('height', H);
+  artBox.setAttribute('visible', true);
 
-  const front = new THREE.Mesh(geo, mat);
-  front.position.z = THICK/2 + 0.003;
-  artGroup.add(front);
+  // 位置リセット
+  currentPos = { x: 0, y: 0, z: -3 };
+  currentRot = { y: 0, x: 0 };
+  updateTransform();
 
-  const back = new THREE.Mesh(geo.clone(), mat.clone());
-  back.position.z = -(THICK/2 + 0.003);
-  back.rotation.y = Math.PI; // 後ろ向き
-  artGroup.add(back);
-
-  artGroup.position.set(0, 0, 0);
-  scene.add(artGroup);
   statusEl.innerText = '完了！コントローラーで動かしてね ✨';
 }
 
-// ═══════════════════════════════════════════════
+function updateTransform() {
+  if (!artPlane) return;
+  const posStr = `${currentPos.x.toFixed(3)} ${currentPos.y.toFixed(3)} ${currentPos.z.toFixed(3)}`;
+  const rotStr = `${(currentRot.x*180/Math.PI).toFixed(2)} ${(currentRot.y*180/Math.PI).toFixed(2)} 0`;
+  artPlane.setAttribute('position', posStr);
+  artPlane.setAttribute('rotation', rotStr);
+  // boxはplaneの少し後ろ
+  artBox.setAttribute('position',
+    `${currentPos.x.toFixed(3)} ${currentPos.y.toFixed(3)} ${(currentPos.z-0.03).toFixed(3)}`);
+  artBox.setAttribute('rotation', rotStr);
+}
+
+// ════════════════════════════════════
 //  トリミングUI
-// ═══════════════════════════════════════════════
+// ════════════════════════════════════
 const cropScreen = document.getElementById('crop-screen');
 const photoCvs   = document.getElementById('photo-canvas');
 const photoCtx   = photoCvs.getContext('2d');
@@ -312,62 +305,66 @@ const drawCvs    = document.getElementById('draw-canvas');
 const drawCtx    = drawCvs.getContext('2d');
 let pathPts=[], drawing=false, lastPt=null;
 
-function syncDraw() {
+function syncDraw(){
   const pr=photoCvs.getBoundingClientRect();
   const wr=document.getElementById('crop-wrap').getBoundingClientRect();
   drawCvs.width=Math.round(pr.width); drawCvs.height=Math.round(pr.height);
   drawCvs.style.width=pr.width+'px'; drawCvs.style.height=pr.height+'px';
   drawCvs.style.left=(pr.left-wr.left)+'px'; drawCvs.style.top=(pr.top-wr.top)+'px';
 }
-function dp(cx,cy) { const r=drawCvs.getBoundingClientRect(); return {x:cx-r.left, y:cy-r.top}; }
-function redraw() {
+function dp(cx,cy){const r=drawCvs.getBoundingClientRect();return{x:cx-r.left,y:cy-r.top};}
+function redraw(){
   drawCtx.clearRect(0,0,drawCvs.width,drawCvs.height);
-  if (pathPts.length<2) return;
+  if(pathPts.length<2)return;
   drawCtx.beginPath();
   drawCtx.moveTo(pathPts[0].x,pathPts[0].y);
-  for (let i=1;i<pathPts.length;i++) drawCtx.lineTo(pathPts[i].x,pathPts[i].y);
-  if (!drawing&&pathPts.length>2) drawCtx.closePath();
-  drawCtx.fillStyle='rgba(0,255,0,0.25)'; drawCtx.fill();
-  drawCtx.strokeStyle='#00ff44'; drawCtx.lineWidth=2.5;
-  drawCtx.lineJoin='round'; drawCtx.lineCap='round'; drawCtx.stroke();
+  for(let i=1;i<pathPts.length;i++)drawCtx.lineTo(pathPts[i].x,pathPts[i].y);
+  if(!drawing&&pathPts.length>2)drawCtx.closePath();
+  drawCtx.fillStyle='rgba(0,255,0,0.2)';drawCtx.fill();
+  drawCtx.strokeStyle='#00ff44';drawCtx.lineWidth=2.5;
+  drawCtx.lineJoin='round';drawCtx.lineCap='round';drawCtx.stroke();
 }
 
-drawCvs.addEventListener('touchstart', e=>{e.preventDefault();drawing=true;const t=e.touches[0];const p=dp(t.clientX,t.clientY);pathPts=[p];lastPt=p;redraw();},{passive:false});
-drawCvs.addEventListener('touchmove',  e=>{e.preventDefault();if(!drawing)return;const t=e.touches[0];const p=dp(t.clientX,t.clientY);if(Math.hypot(p.x-lastPt.x,p.y-lastPt.y)>5){pathPts.push(p);lastPt=p;redraw();}},{passive:false});
-drawCvs.addEventListener('touchend',   e=>{e.preventDefault();drawing=false;lastPt=null;redraw();},{passive:false});
-drawCvs.addEventListener('mousedown',  e=>{drawing=true;const p=dp(e.clientX,e.clientY);pathPts=[p];lastPt=p;redraw();});
-window.addEventListener('mousemove',   e=>{if(!drawing)return;const p=dp(e.clientX,e.clientY);if(Math.hypot(p.x-lastPt.x,p.y-lastPt.y)>5){pathPts.push(p);lastPt=p;redraw();}});
-window.addEventListener('mouseup',     ()=>{drawing=false;lastPt=null;redraw();});
+drawCvs.addEventListener('touchstart',e=>{e.preventDefault();drawing=true;const t=e.touches[0];const p=dp(t.clientX,t.clientY);pathPts=[p];lastPt=p;redraw();},{passive:false});
+drawCvs.addEventListener('touchmove', e=>{e.preventDefault();if(!drawing)return;const t=e.touches[0];const p=dp(t.clientX,t.clientY);if(Math.hypot(p.x-lastPt.x,p.y-lastPt.y)>5){pathPts.push(p);lastPt=p;redraw();}},{passive:false});
+drawCvs.addEventListener('touchend',  e=>{e.preventDefault();drawing=false;lastPt=null;redraw();},{passive:false});
+drawCvs.addEventListener('mousedown', e=>{drawing=true;const p=dp(e.clientX,e.clientY);pathPts=[p];lastPt=p;redraw();});
+window.addEventListener ('mousemove', e=>{if(!drawing)return;const p=dp(e.clientX,e.clientY);if(Math.hypot(p.x-lastPt.x,p.y-lastPt.y)>5){pathPts.push(p);lastPt=p;redraw();}});
+window.addEventListener ('mouseup',   ()=>{drawing=false;lastPt=null;redraw();});
 
 document.getElementById('cb-reset').addEventListener('click',()=>{pathPts=[];drawCtx.clearRect(0,0,drawCvs.width,drawCvs.height);});
 document.getElementById('cb-cancel').addEventListener('click',()=>{pathPts=[];cropScreen.classList.remove('show');});
 document.getElementById('cb-ok').addEventListener('click',()=>{
-  if (pathPts.length<3){alert('指でなぞって範囲を囲んでね！');return;}
-  const scX=photoCvs.width/drawCvs.width, scY=photoCvs.height/drawCvs.height;
-  const realPts=pathPts.map(p=>({x:p.x*scX, y:p.y*scY}));
-  const result=makeChromaCanvas(photoCvs,realPts);
-  if (!result){alert('もう少し広い範囲をなぞってね');return;}
+  if(pathPts.length<3){alert('指でなぞって範囲を囲んでね！');return;}
+  const result=makeCroppedCanvas(photoCvs,pathPts);
+  if(!result){alert('もう少し広い範囲をなぞってね');return;}
   cropScreen.classList.remove('show');
   pathPts=[];drawCtx.clearRect(0,0,drawCvs.width,drawCvs.height);
-  buildObject(result.canvas, result.aspect);
+  statusEl.innerText='処理中...';
+  applyTexture(result);
 });
 
-function openCropScreen(img) {
-  const maxW=window.innerWidth, maxH=window.innerHeight-130;
-  const r=Math.min(maxW/img.width, maxH/img.height, 1);
-  photoCvs.width=Math.round(img.width*r); photoCvs.height=Math.round(img.height*r);
-  photoCvs.style.width=photoCvs.width+'px'; photoCvs.style.height=photoCvs.height+'px';
+function openCropScreen(img){
+  const maxW=window.innerWidth,maxH=window.innerHeight-130;
+  const r=Math.min(maxW/img.width,maxH/img.height,1);
+  photoCvs.width=Math.round(img.width*r);photoCvs.height=Math.round(img.height*r);
+  photoCvs.style.width=photoCvs.width+'px';photoCvs.style.height=photoCvs.height+'px';
   photoCtx.drawImage(img,0,0,photoCvs.width,photoCvs.height);
-  pathPts=[]; cropScreen.classList.add('show');
+  pathPts=[];cropScreen.classList.add('show');
   setTimeout(()=>{syncDraw();drawCtx.clearRect(0,0,drawCvs.width,drawCvs.height);},60);
 }
 
+// 撮影
 document.getElementById('btn-camera').addEventListener('click',()=>{
-  const vw=bgVideo.videoWidth||640,vh=bgVideo.videoHeight||480;
-  const s=document.createElement('canvas');s.width=vw;s.height=vh;
-  s.getContext('2d').drawImage(bgVideo,0,0,vw,vh);
-  const img=new Image();img.onload=()=>openCropScreen(img);img.src=s.toDataURL('image/png');
+  const scene=document.querySelector('a-scene');
+  const aCanvas=scene.canvas;
+  // A-Frameのcanvasから直接スナップショット
+  const snap=document.createElement('canvas');
+  snap.width=aCanvas.width;snap.height=aCanvas.height;
+  snap.getContext('2d').drawImage(aCanvas,0,0);
+  const img=new Image();img.onload=()=>openCropScreen(img);img.src=snap.toDataURL('image/png');
 });
+// ファイル選択
 document.getElementById('btn-upload').addEventListener('click',()=>document.getElementById('image-up').click());
 document.getElementById('image-up').addEventListener('change',e=>{
   const f=e.target.files[0];if(!f)return;
@@ -375,17 +372,18 @@ document.getElementById('image-up').addEventListener('change',e=>{
   rd.onload=ev=>{const img=new Image();img.onload=()=>openCropScreen(img);img.src=ev.target.result;};
   rd.readAsDataURL(f);e.target.value='';
 });
+// 消す
 document.getElementById('btn-clear').addEventListener('click',()=>{
-  if(artGroup){scene.remove(artGroup);artGroup.traverse(o=>{if(o.isMesh){o.geometry.dispose();o.material.dispose();}});artGroup=null;}
+  if(artPlane){artPlane.setAttribute('visible',false);}
+  if(artBox){artBox.setAttribute('visible',false);}
   statusEl.innerText='消しました。また読み込んでね';
 });
 
-// ═══════════════════════════════════════════════
+// ════════════════════════════════════
 //  コントローラー
-//  左右(X) → artGroup.position.x + Y軸回転
-//  前後(Z) → artGroup.position.z + X軸回転
-//  ▲▼   → artGroup.position.y
-// ═══════════════════════════════════════════════
+//  左右(X)・前後(Z) → currentPos更新 + 回転演出
+//  ▲▼ → currentPos.y更新
+// ════════════════════════════════════
 const joyBase=document.getElementById('joy-base');
 const knob=document.getElementById('joy-knob');
 let joyOn=false,jx=0,jy=0,inputX=0,inputZ=0,velX=0,velZ=0;
@@ -397,14 +395,16 @@ window.addEventListener('touchmove',e=>{
   const t=e.touches[0],dx=t.clientX-jx,dy=t.clientY-jy;
   const dist=Math.sqrt(dx*dx+dy*dy),cl=Math.min(dist,JR),ang=Math.atan2(dy,dx);
   knob.style.transform=`translate(${cl*Math.cos(ang)}px,${cl*Math.sin(ang)}px)`;
-  inputX=dx/JR; inputZ=dy/JR;
+  inputX=dx/JR;inputZ=dy/JR;
   jx=t.clientX;jy=t.clientY;
 },{passive:false});
 window.addEventListener('touchend',()=>{joyOn=false;inputX=0;inputZ=0;knob.style.transition='transform 0.12s ease-out';knob.style.transform='translate(0,0)';});
 
-const HS=0.06;let vTimer=null;
-const chY=d=>{if(artGroup)artGroup.position.y+=d;};
-const stY=d=>{chY(d);vTimer=setInterval(()=>chY(d),100);};
+const HS=0.04;let vTimer=null;
+const stY=d=>{
+  if(artPlane&&artPlane.getAttribute('visible')){currentPos.y+=d;updateTransform();}
+  vTimer=setInterval(()=>{if(artPlane&&artPlane.getAttribute('visible')){currentPos.y+=d;updateTransform();}},100);
+};
 const spY=()=>clearInterval(vTimer);
 ['touchstart','mousedown'].forEach(ev=>{
   document.getElementById('btn-up').addEventListener(ev,e=>{e.preventDefault();stY( HS);},{passive:false});
@@ -415,29 +415,31 @@ const spY=()=>clearInterval(vTimer);
   document.getElementById('btn-dn').addEventListener(ev,spY);
 });
 
-const SPEED=0.04,FRIC=0.82,ROT_Y=0.7,ROT_X=0.5,LRPV=0.08;
+// メインループ
+const SPEED=0.02,FRIC=0.82,ROT_Y=0.6,ROT_X=0.4,LRPV=0.1;
 let tRY=0,tRX=0;
 
-(function loop(){
-  requestAnimationFrame(loop);
-  if(artGroup){
-    velX=velX*FRIC+inputX*SPEED;
-    velZ=velZ*FRIC+inputZ*SPEED;
-    artGroup.position.x+=velX;
-    artGroup.position.z+=velZ;
+function mainLoop(){
+  requestAnimationFrame(mainLoop);
+  if(!artPlane||!artPlane.getAttribute('visible'))return;
 
-    // 左右移動 → Y軸回転（横に回り込む）
-    tRY=-(velX/SPEED)*ROT_Y;
-    tRY=Math.max(-ROT_Y,Math.min(ROT_Y,tRY));
-    artGroup.rotation.y+=(tRY-artGroup.rotation.y)*LRPV;
+  velX=velX*FRIC+inputX*SPEED;
+  velZ=velZ*FRIC+inputZ*SPEED;
+  currentPos.x+=velX;
+  currentPos.z+=velZ;
 
-    // 前後移動 → X軸回転（前後に傾く）
-    tRX=(velZ/SPEED)*ROT_X;
-    tRX=Math.max(-ROT_X,Math.min(ROT_X,tRX));
-    artGroup.rotation.x+=(tRX-artGroup.rotation.x)*LRPV;
-  }
-  renderer.render(scene,cam);
-})();
+  // 回転演出
+  tRY=-(velX/SPEED)*ROT_Y;
+  tRY=Math.max(-ROT_Y,Math.min(ROT_Y,tRY));
+  currentRot.y+=(tRY-currentRot.y)*LRPV;
+
+  tRX=(velZ/SPEED)*ROT_X;
+  tRX=Math.max(-ROT_X,Math.min(ROT_X,tRX));
+  currentRot.x+=(tRX-currentRot.x)*LRPV;
+
+  updateTransform();
+}
+mainLoop();
 </script>
 </body>
 </html>
