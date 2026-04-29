@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>らくがきAR v20.0 - 50度傾斜・安定版</title>
+  <title>らくがきAR v21.0 - 70度直立・安定版</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { overflow: hidden; background: #000; touch-action: none; font-family: sans-serif; }
@@ -29,7 +29,7 @@
 <canvas id="gl-canvas"></canvas>
 
 <div id="ui">
-  <b>🎨 らくがきAR v20.0</b>
+  <b>🎨 らくがきAR v21.0</b>
   <div class="row">
     <div id="btn-shoot" class="btn">📷 撮影</div>
     <div id="btn-file-trigger" class="btn">🖼️ 選択</div>
@@ -58,11 +58,10 @@ const video = document.getElementById('cam-video');
 const glCanvas = document.getElementById('gl-canvas');
 navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(s => video.srcObject = s);
 
-// --- 1. Three.js 設定 ---
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 1000);
-camera.position.set(0, 8, 18); // 少し遠目から見下ろす
-camera.lookAt(0, 0, 0);
+camera.position.set(0, 8, 18);
+camera.lookAt(0, 2, 0);
 
 const renderer = new THREE.WebGLRenderer({ canvas: glCanvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(window.devicePixelRatio);
@@ -70,7 +69,6 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 
 let charObj;
 
-// --- 2. モデル生成 (50度傾斜バージョン) ---
 function createARModel(sourceImg, pts, viewW, viewH) {
     const sx = sourceImg.naturalWidth / viewW;
     const sy = sourceImg.naturalHeight / viewH;
@@ -89,8 +87,7 @@ function createARModel(sourceImg, pts, viewW, viewH) {
     ctx.beginPath();
     ctx.moveTo(imgPts[0].x - minX, imgPts[0].y - minY);
     for(let i=1; i<imgPts.length; i++) ctx.lineTo(imgPts[i].x - minX, imgPts[i].y - minY);
-    ctx.closePath();
-    ctx.clip();
+    ctx.closePath(); ctx.clip();
     ctx.drawImage(sourceImg, minX, minY, w, h, 0, 0, w, h);
 
     const tex = new THREE.CanvasTexture(canvas);
@@ -98,7 +95,7 @@ function createARModel(sourceImg, pts, viewW, viewH) {
     const shape = new THREE.Shape();
     const cx = w / 2, cy = h / 2;
     
-    // 足元(下端)を回転の軸にするため、座標のオフセットを調整
+    // 足元を軸にするための座標設定
     shape.moveTo(imgPts[0].x - minX - cx, -(imgPts[0].y - minY - cy));
     for(let i=1; i<imgPts.length; i++) shape.lineTo(imgPts[i].x - minX - cx, -(imgPts[i].y - minY - cy));
 
@@ -114,24 +111,21 @@ function createARModel(sourceImg, pts, viewW, viewH) {
     
     mesh.scale.set(scale, scale, 0.05);
     
-    // ★角度調整：手前に約50度傾ける (Math.PI / 180 * 50)
-    // 地面から立ち上がっているように見せる
-    mesh.rotation.x = -Math.PI / 180 * 50; 
-    mesh.position.y = 2; // 地面から少し浮かせる
+    // ★向きを修正：プラス方向に回転させることで頭が手前に起きます
+    // 角度を70度に設定
+    mesh.rotation.x = Math.PI / 180 * 70; 
+    mesh.position.y = 1; 
     
     return mesh;
 }
 
-// --- 3. 操作・不具合修正 ---
 const fileIn = document.getElementById('file-in');
 document.getElementById('btn-file-trigger').onclick = () => fileIn.click();
-
 fileIn.onchange = (e) => {
     if(e.target.files[0]) {
         const reader = new FileReader();
         reader.onload = (f) => {
             openCrop(f.target.result);
-            // ★重要：次に同じファイルを選んでも反応するようにリセット
             fileIn.value = ""; 
         };
         reader.readAsDataURL(e.target.files[0]);
