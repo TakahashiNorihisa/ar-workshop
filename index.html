@@ -3,8 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>らくがきAR v22.0 - 50度傾斜・安定版</title>
+  <title>らくがきAR v23.0 - 30度傾斜版</title>
   <style>
+    /* UIやレイアウトのスタイルは変更なし */
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { overflow: hidden; background: #000; touch-action: none; font-family: sans-serif; }
     #cam-video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; }
@@ -29,7 +30,7 @@
 <canvas id="gl-canvas"></canvas>
 
 <div id="ui">
-  <b>🎨 らくがきAR v22.0</b>
+  <b>🎨 らくがきAR v23.0</b>
   <div class="row">
     <div id="btn-shoot" class="btn">📷 撮影</div>
     <div id="btn-file-trigger" class="btn">🖼️ 選択</div>
@@ -60,7 +61,6 @@ navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).th
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 1000);
-// 少し高めから見下ろす視点を維持
 camera.position.set(0, 8, 18);
 camera.lookAt(0, 2, 0);
 
@@ -111,14 +111,13 @@ function createARModel(sourceImg, pts, viewW, viewH) {
     
     mesh.scale.set(scale, scale, 0.05);
     
-    // ★角度を50度に再設定
-    mesh.rotation.x = Math.PI / 180 * 50; 
-    mesh.position.y = 1; 
+    // ★角度を30度に調整
+    mesh.rotation.x = Math.PI / 180 * 30; 
+    mesh.position.y = 0.5; // 角度が浅いので少し接地感を出すため低めに配置
     
     return mesh;
 }
 
-// ファイル選択時のリセット処理
 const fileIn = document.getElementById('file-in');
 document.getElementById('btn-file-trigger').onclick = () => fileIn.click();
 fileIn.onchange = (e) => {
