@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>らくがきAR v15.0 - ジャイロ連動・色鮮やか版</title>
+  <title>らくがきAR v16.0 - 立体・撮影修正版</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { overflow: hidden; background: #000; touch-action: none; font-family: sans-serif; }
@@ -29,7 +29,7 @@
 <canvas id="gl-canvas"></canvas>
 
 <div id="ui">
-  <b>🎨 らくがきAR v15.0</b>
+  <b>🎨 らくがきAR v16.0</b>
   <div class="row">
     <div id="btn-shoot" class="btn">📷 素材撮影</div>
     <div id="btn-file-trigger" class="btn">🖼️ 素材選択</div>
@@ -56,21 +56,30 @@ const video = document.getElementById('cam-video');
 const glCanvas = document.getElementById('gl-canvas');
 navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(s => video.srcObject = s);
 
-// --- 1. Three.js セットアップ ---
+// --- 1. Three.js ---
 const scene = new THREE.Scene();
+// 見下ろす角度にするためにカメラ位置を調整
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 1000);
-camera.position.set(0, 0, 15);
+camera.position.set(0, 5, 15);
+camera.lookAt(0, 0, 0);
 
-const renderer = new THREE.WebGLRenderer({ canvas: glCanvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
+const renderer = new THREE.WebGLRenderer({ 
+    canvas: glCanvas, 
+    alpha: true, 
+    antialias: true, 
+    preserveDrawingBuffer: true 
+});
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
 
-const artGroup = new THREE.Group(); // ジャイロで揺らすための親グループ
+const artGroup = new THREE.Group();
+// ★キャラクターを最初から地面に立たせる（立ち上がる角度）
+artGroup.rotation.x = -Math.PI / 6; 
 scene.add(artGroup);
 
 let charObj;
 
-// --- 2. モデル生成 (色鮮やか版 + UV補正済み) ---
+// --- 2. モデル生成 (色鮮やか + UV補正) ---
 function createARModel(sourceImg, pts, viewW, viewH) {
     const sx = sourceImg.naturalWidth / viewW;
     const sy = sourceImg.naturalHeight / viewH;
@@ -86,8 +95,6 @@ function createARModel(sourceImg, pts, viewW, viewH) {
     const canvas = document.createElement('canvas');
     canvas.width = w; canvas.height = h;
     const ctx = canvas.getContext('2d');
-
-    // 型抜き
     ctx.beginPath();
     ctx.moveTo(imgPts[0].x - minX, imgPts[0].y - minY);
     for(let i=1; i<imgPts.length; i++) ctx.lineTo(imgPts[i].x - minX, imgPts[i].y - minY);
@@ -96,52 +103,69 @@ function createARModel(sourceImg, pts, viewW, viewH) {
     ctx.drawImage(sourceImg, minX, minY, w, h, 0, 0, w, h);
 
     const tex = new THREE.CanvasTexture(canvas);
-    tex.minFilter = THREE.LinearFilter;
-
-    const scale = 5.0 / h; // 少し大きめに
+    const scale = 5.0 / h;
     const shape = new THREE.Shape();
     const cx = w / 2, cy = h / 2;
     shape.moveTo(imgPts[0].x - minX - cx, -(imgPts[0].y - minY - cy));
     for(let i=1; i<imgPts.length; i++) shape.lineTo(imgPts[i].x - minX - cx, -(imgPts[i].y - minY - cy));
 
-    // 前面（絵）
+    // 前面
     const faceGeom = new THREE.ShapeGeometry(shape);
     const pos = faceGeom.attributes.position;
     const uv = faceGeom.attributes.uv;
     for (let i = 0; i < pos.count; i++) {
         uv.setXY(i, (pos.getX(i) + cx) / w, (pos.getY(i) + cy) / h);
     }
-    
-    // 色を薄くしない MeshBasicMaterial
     const faceMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.1, side: THREE.DoubleSide });
     const faceMesh = new THREE.Mesh(faceGeom, faceMat);
-    faceMesh.position.z = 0.2; // 前に浮かせる
+    faceMesh.position.z = 0.2;
 
-    // 側面（厚み）
+    // 厚み（側面）
     const sideGeom = new THREE.ExtrudeGeometry(shape, { depth: 10, bevelEnabled: false });
-    // 側面は少し暗くして影を表現（立面に見えるようにする）
     const sideMat = new THREE.MeshBasicMaterial({ color: 0x888888 }); 
     const sideMesh = new THREE.Mesh(sideGeom, sideMat);
-    sideMesh.scale.z = 0.04; // 厚みをしっかり出す
+    sideMesh.scale.z = 0.05; // 立体感を出すために厚めに
     sideMesh.position.z = -0.2;
 
     const group = new THREE.Group();
     group.add(faceMesh, sideMesh);
     group.scale.set(scale, scale, 1);
+    // キャラクター自体を垂直に立たせる
+    group.rotation.x = -Math.PI / 2.5; 
     return group;
 }
 
-// --- 3. ジャイロ連動 (スマホの傾きでARを覗き込む) ---
-let targetRotX = 0, targetRotY = 0;
-window.addEventListener('deviceorientation', (e) => {
-    // ベータ(前後傾)とガンマ(左右傾)を利用
-    if (e.beta !== null && e.gamma !== null) {
-        targetRotX = (e.beta - 45) * 0.005; // 45度くらいで持っている前提
-        targetRotY = e.gamma * 0.005;
-    }
-});
+// --- 3. 撮影機能 (Blobによる確実な実装) ---
+document.getElementById('btn-capture').onclick = () => {
+    const out = document.createElement('canvas');
+    out.width = video.videoWidth;
+    out.height = video.videoHeight;
+    const ctx = out.getContext('2d');
+    
+    // 背景カメラ映像
+    ctx.drawImage(video, 0, 0, out.width, out.height);
+    // ARレイヤー
+    ctx.drawImage(glCanvas, 0, 0, out.width, out.height);
 
-// --- 4. 操作系 (低速・スムーズ) ---
+    // Blobに変換して保存
+    out.toBlob((blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = `AR_PHOTO_${Date.now()}.png`;
+        document.body.appendChild(a);
+        a.click();
+        
+        // Android/iOSでの保険：うまくいかない場合は別タブで画像を開く
+        setTimeout(() => {
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }, 100);
+    }, 'image/png');
+};
+
+// --- 4. 操作系 (低速) ---
 let ry=0, mx=0, mz=0, my=0;
 const knob = document.getElementById('knob'), joy = document.getElementById('joy');
 
@@ -153,16 +177,15 @@ joy.addEventListener('touchmove', (e) => {
     knob.style.transform = `translate(${Math.cos(angle)*limit}px, ${Math.sin(angle)*limit}px)`;
 
     if (dist > maxR * 0.75) {
-        ry = -(dx / maxR) * 0.02; // 外周：ゆっくり回転
+        ry = -(dx / maxR) * 0.02; 
         mx = mz = my = 0;
     } else {
         ry = 0;
-        mx = (dx / maxR) * 0.05; // 中央：ゆっくり移動
+        mx = (dx / maxR) * 0.05; 
         mz = (dy / maxR) * 0.05;
         my = -(dy / maxR) * 0.05;
     }
 }, {passive:false});
-
 joy.addEventListener('touchend', () => { knob.style.transform = 'none'; ry=mx=mz=my=0; });
 
 // --- 5. UI制御とアニメーション ---
@@ -201,22 +224,13 @@ document.getElementById('btn-shoot').onclick = () => {
     c.getContext('2d').drawImage(video, 0, 0); openCrop(c.toDataURL());
 };
 
-document.getElementById('btn-capture').onclick = () => {
-    const out = document.createElement('canvas'); out.width = video.videoWidth; out.height = video.videoHeight;
-    const ctx = out.getContext('2d'); ctx.drawImage(video, 0, 0); ctx.drawImage(glCanvas, 0, 0, out.width, out.height);
-    const link = document.createElement('a'); link.download = `AR_${Date.now()}.png`; link.href = out.toDataURL(); link.click();
-};
-
 function animate() {
     requestAnimationFrame(animate);
     if(charObj) {
         charObj.rotation.y += ry;
-        charObj.position.x += mx; charObj.position.z += mz; charObj.position.y += my;
-        
-        // ★ジャイロによる「覗き込み」効果を適用
-        // カメラではなく、キャラクターを少し傾けることでスマホの動きに追従しているように見せる
-        artGroup.rotation.x += (targetRotX - artGroup.rotation.x) * 0.1;
-        artGroup.rotation.y += (targetRotY - artGroup.rotation.y) * 0.1;
+        charObj.position.x += mx; 
+        charObj.position.z += mz; 
+        charObj.position.y += my;
     }
     renderer.render(scene, camera);
 }
