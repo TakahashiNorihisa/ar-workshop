@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>らくがきAR v25.0 - 中心ズーム・テクスチャ修正版</title>
+  <title>らくがきAR v26.0 - 画像表示修正版</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { overflow: hidden; background: #000; touch-action: none; font-family: sans-serif; }
@@ -14,13 +14,13 @@
     .btn { flex: 1; min-width: 80px; padding: 10px 5px; text-align: center; cursor: pointer; background: #444; border: 1px solid #fff; border-radius: 6px; color: #fff; font-size: 12px; font-weight: bold; }
     #btn-capture { background: #e67e22; width: 100%; margin-top: 8px; }
     
-    #crop { display: none; position: fixed; inset: 0; z-index: 100; flex-direction: column; background: #111; }
+    /* 切り抜き画面：真っ黒回避のための背景色 */
+    #crop { display: none; position: fixed; inset: 0; z-index: 100; flex-direction: column; background: #222; }
     #crop.on { display: flex; }
-    #crop-wrap { flex: 1; position: relative; overflow: hidden; background: #000; }
-    /* 中心起点のトランスフォーム設定 */
+    #crop-wrap { flex: 1; position: relative; overflow: hidden; background: #333; }
     #crop-container { position: absolute; top: 50%; left: 50%; transform-origin: center center; }
-    #photo-cv { display: block; transform: translate(-50%, -50%); }
-    #draw-cv { position: absolute; top: 0; left: 0; transform: translate(-50%, -50%); }
+    #photo-cv { display: block; transform: translate(-50%, -50%); background: #000; }
+    #draw-cv { position: absolute; top: 0; left: 0; transform: translate(-50%, -50%); pointer-events: auto; }
     
     #crop-btns { display: flex; gap: 20px; padding: 20px; background: #000; justify-content: center; }
     #joy { position: fixed; bottom: 40px; left: 40px; z-index: 10; width: 120px; height: 120px; border-radius: 50%; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.5); }
@@ -33,7 +33,7 @@
 <canvas id="gl-canvas"></canvas>
 
 <div id="ui">
-  <b>🎨 らくがきAR v25.0</b>
+  <b>🎨 らくがきAR v26.0</b>
   <div class="row">
     <div id="btn-shoot" class="btn">📷 撮影</div>
     <div id="btn-file-trigger" class="btn">🖼️ 選択</div>
@@ -78,7 +78,7 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 
 let charObj;
 
-// --- AR空間の独立ズーム操作 ---
+// --- AR空間のズーム ---
 let initialPinchDist = null;
 window.addEventListener('touchmove', (e) => {
   if (e.touches.length === 2 && charObj && !cropEl.classList.contains('on')) {
@@ -112,7 +112,7 @@ function createARModel(sourceImg, pts) {
     ctx.drawImage(sourceImg, minX, minY, w, h, 0, 0, w, h);
 
     const tex = new THREE.CanvasTexture(canvas);
-    tex.needsUpdate = true; // テクスチャ更新を確実にする
+    tex.needsUpdate = true;
 
     const shape = new THREE.Shape();
     const cx = w / 2, cy = h / 2;
@@ -120,14 +120,10 @@ function createARModel(sourceImg, pts) {
     for(let i=1; i<pts.length; i++) shape.lineTo(pts[i].x - minX - cx, -(pts[i].y - minY - cy));
 
     const geometry = new THREE.ExtrudeGeometry(shape, { depth: 10, bevelEnabled: false });
-    
-    // UV座標の再計算（テクスチャが正しく貼られるようにする）
     const pos = geometry.attributes.position;
     const uv = geometry.attributes.uv;
     for (let i = 0; i < pos.count; i++) {
-        const u = (pos.getX(i) + cx) / w;
-        const v = (pos.getY(i) + cy) / h;
-        uv.setXY(i, u, v);
+        uv.setXY(i, (pos.getX(i) + cx) / w, (pos.getY(i) + cy) / h);
     }
 
     const material = new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.1, side: THREE.DoubleSide });
@@ -141,6 +137,7 @@ function createARModel(sourceImg, pts) {
     return mesh;
 }
 
+// --- 切り抜き画面の制御 ---
 const cropEl = document.getElementById('crop'), cropWrap = document.getElementById('crop-wrap'), cropCont = document.getElementById('crop-container');
 const photoCv = document.getElementById('photo-cv'), drawCv = document.getElementById('draw-cv'), drawCtx = drawCv.getContext('2d');
 let rawImg = new Image(), pts = [], drawing = false;
@@ -151,23 +148,33 @@ function updateCropUI() {
 }
 
 function openCrop(src) {
+    rawImg.src = src;
     rawImg.onload = () => {
+        // キャンバスサイズを元画像に合わせる
         photoCv.width = drawCv.width = rawImg.width; 
         photoCv.height = drawCv.height = rawImg.height;
-        photoCv.getContext('2d').drawImage(rawImg, 0, 0);
-        vScale = Math.min(window.innerWidth/rawImg.width, (window.innerHeight-200)/rawImg.height);
-        vX = vY = 0;
+        
+        const pCtx = photoCv.getContext('2d');
+        pCtx.clearRect(0, 0, photoCv.width, photoCv.height);
+        pCtx.drawImage(rawImg, 0, 0);
+
+        // 画面に収まる初期倍率を計算
+        const winW = window.innerWidth, winH = window.innerHeight - 150;
+        vScale = Math.min(winW / rawImg.width, winH / rawImg.height) * 0.9;
+        vX = vY = 0; // translate(-50%, -50%)しているので0で中央
+        
         updateCropUI();
-        pts = []; drawCtx.clearRect(0,0,drawCv.width,drawCv.height);
+        pts = []; 
+        drawCtx.clearRect(0, 0, drawCv.width, drawCv.height);
         cropEl.classList.add('on');
     };
-    rawImg.src = src;
 }
 
 cropWrap.addEventListener('touchstart', (e) => {
     if (e.touches.length === 1) {
         drawing = true;
         const rect = drawCv.getBoundingClientRect();
+        // 表示上の座標を元の画像座標に変換
         const x = (e.touches[0].clientX - rect.left) / vScale;
         const y = (e.touches[0].clientY - rect.top) / vScale;
         pts = [{x, y}];
@@ -184,13 +191,17 @@ cropWrap.addEventListener('touchmove', (e) => {
         const x = (e.touches[0].clientX - rect.left) / vScale;
         const y = (e.touches[0].clientY - rect.top) / vScale;
         pts.push({x, y});
+        
         drawCtx.clearRect(0,0,drawCv.width,drawCv.height);
-        drawCtx.strokeStyle="#0f0"; drawCtx.lineWidth = 5 / vScale;
+        drawCtx.strokeStyle="#0f0"; 
+        drawCtx.lineWidth = 5 / vScale; // ズームしても線の太さを一定に見せる
         drawCtx.beginPath(); drawCtx.moveTo(pts[0].x, pts[0].y);
         pts.forEach(p => drawCtx.lineTo(p.x, p.y)); drawCtx.stroke();
     } else if (e.touches.length === 2) {
         const dist = Math.hypot(e.touches[0].pageX - e.touches[1].pageX, e.touches[0].pageY - e.touches[1].pageY);
-        vScale *= (dist / lastDist);
+        if (lastDist > 0) {
+            vScale *= (dist / lastDist);
+        }
         lastDist = dist;
         updateCropUI();
     }
@@ -204,17 +215,25 @@ document.getElementById('cb-ok').onclick = () => {
     cropEl.classList.remove('on');
 };
 
-// 基本操作
+// UI・基本機能
 const fileIn = document.getElementById('file-in');
 document.getElementById('btn-file-trigger').onclick = () => fileIn.click();
-fileIn.onchange = (e) => { if(e.target.files[0]) { const r=new FileReader(); r.onload=(f)=>openCrop(f.target.result); r.readAsDataURL(e.target.files[0]); fileIn.value=""; } };
-document.getElementById('btn-shoot').onclick = () => { const c=document.createElement('canvas'); c.width=video.videoWidth; c.height=video.videoHeight; c.getContext('2d').drawImage(video,0,0); openCrop(c.toDataURL()); };
-document.getElementById('btn-del').onclick = () => { if(charObj) scene.remove(charObj); charObj=null; };
-document.getElementById('btn-capture').onclick = () => {
-    const out=document.createElement('canvas'); out.width=video.videoWidth; out.height=video.videoHeight;
-    const ctx=out.getContext('2d'); ctx.drawImage(video,0,0); ctx.drawImage(glCanvas,0,0,out.width,out.height);
-    const link=document.createElement('a'); link.download=`AR_${Date.now()}.png`; link.href=out.toDataURL(); link.click();
+fileIn.onchange = (e) => { 
+    if(e.target.files[0]) { 
+        const r=new FileReader(); 
+        r.onload=(f)=>openCrop(f.target.result); 
+        r.readAsDataURL(e.target.files[0]); 
+        fileIn.value=""; 
+    } 
 };
+document.getElementById('btn-shoot').onclick = () => { 
+    const c=document.createElement('canvas'); 
+    c.width=video.videoWidth; c.height=video.videoHeight; 
+    c.getContext('2d').drawImage(video,0,0); 
+    openCrop(c.toDataURL()); 
+};
+document.getElementById('btn-del').onclick = () => { if(charObj) scene.remove(charObj); charObj=null; };
+document.getElementById('cb-cancel').onclick = () => cropEl.classList.remove('on');
 
 let ry=0, mx=0, mz=0;
 const knob = document.getElementById('knob'), joy = document.getElementById('joy');
@@ -234,7 +253,6 @@ function animate() {
     renderer.render(scene, camera);
 }
 animate();
-document.getElementById('cb-cancel').onclick = () => cropEl.classList.remove('on');
 </script>
 </body>
 </html>
