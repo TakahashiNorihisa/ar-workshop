@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>らくがきAR v16.0 - 立体・撮影修正版</title>
+  <title>らくがきAR v17.0 - 完全修正版</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { overflow: hidden; background: #000; touch-action: none; font-family: sans-serif; }
@@ -13,6 +13,12 @@
     .row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
     .btn { flex: 1; min-width: 80px; padding: 10px 5px; text-align: center; cursor: pointer; background: #444; border: 1px solid #fff; border-radius: 6px; color: #fff; font-size: 12px; font-weight: bold; }
     #btn-capture { background: #e67e22; width: 100%; margin-top: 8px; }
+    
+    /* 撮影した画像のプレビュー用 */
+    #shot-preview { display: none; position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,0.9); flex-direction: column; align-items: center; justify-content: center; padding: 20px; }
+    #shot-preview img { max-width: 100%; max-height: 80%; border: 2px solid #fff; }
+    #shot-preview p { color: #fff; margin-top: 15px; font-size: 14px; text-align: center; }
+
     #crop { display: none; position: fixed; inset: 0; z-index: 100; flex-direction: column; background: #111; }
     #crop.on { display: flex; }
     #crop-wrap { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; }
@@ -29,13 +35,19 @@
 <canvas id="gl-canvas"></canvas>
 
 <div id="ui">
-  <b>🎨 らくがきAR v16.0</b>
+  <b>🎨 らくがきAR v17.0</b>
   <div class="row">
     <div id="btn-shoot" class="btn">📷 素材撮影</div>
     <div id="btn-file-trigger" class="btn">🖼️ 素材選択</div>
     <div id="btn-del" class="btn" style="background:#822">🗑️ 消去</div>
     <div id="btn-capture" class="btn">📸 いっしょに保存</div>
   </div>
+</div>
+
+<div id="shot-preview">
+  <img id="preview-img" src="">
+  <p>画像を長押しして「写真に追加」または「保存」してください</p>
+  <button class="btn" style="margin-top:20px; width:150px;" onclick="closePreview()">閉じる</button>
 </div>
 
 <div id="crop">
@@ -56,30 +68,19 @@ const video = document.getElementById('cam-video');
 const glCanvas = document.getElementById('gl-canvas');
 navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(s => video.srcObject = s);
 
-// --- 1. Three.js ---
+// --- 1. Three.js: シンプルに上から見下ろす視点 ---
 const scene = new THREE.Scene();
-// 見下ろす角度にするためにカメラ位置を調整
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 1000);
-camera.position.set(0, 5, 15);
-camera.lookAt(0, 0, 0);
+camera.position.set(0, 8, 18); // 斜め上からの視点
+camera.lookAt(0, 2, 0);
 
-const renderer = new THREE.WebGLRenderer({ 
-    canvas: glCanvas, 
-    alpha: true, 
-    antialias: true, 
-    preserveDrawingBuffer: true 
-});
+const renderer = new THREE.WebGLRenderer({ canvas: glCanvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
 
-const artGroup = new THREE.Group();
-// ★キャラクターを最初から地面に立たせる（立ち上がる角度）
-artGroup.rotation.x = -Math.PI / 6; 
-scene.add(artGroup);
-
 let charObj;
 
-// --- 2. モデル生成 (色鮮やか + UV補正) ---
+// --- 2. モデル生成 (立ち上がる角度の修正) ---
 function createARModel(sourceImg, pts, viewW, viewH) {
     const sx = sourceImg.naturalWidth / viewW;
     const sy = sourceImg.naturalHeight / viewH;
@@ -103,16 +104,18 @@ function createARModel(sourceImg, pts, viewW, viewH) {
     ctx.drawImage(sourceImg, minX, minY, w, h, 0, 0, w, h);
 
     const tex = new THREE.CanvasTexture(canvas);
-    const scale = 5.0 / h;
+    const scale = 8.0 / h; // 少し大きく表示
     const shape = new THREE.Shape();
     const cx = w / 2, cy = h / 2;
+    
+    // Y座標を逆転させ、足元が(0,0,0)付近に来るように調整
     shape.moveTo(imgPts[0].x - minX - cx, -(imgPts[0].y - minY - cy));
     for(let i=1; i<imgPts.length; i++) shape.lineTo(imgPts[i].x - minX - cx, -(imgPts[i].y - minY - cy));
 
-    // 前面
+    // 正面の絵 (カメラに向かって真っ直ぐ)
     const faceGeom = new THREE.ShapeGeometry(shape);
-    const pos = faceGeom.attributes.position;
     const uv = faceGeom.attributes.uv;
+    const pos = faceGeom.attributes.position;
     for (let i = 0; i < pos.count; i++) {
         uv.setXY(i, (pos.getX(i) + cx) / w, (pos.getY(i) + cy) / h);
     }
@@ -120,75 +123,56 @@ function createARModel(sourceImg, pts, viewW, viewH) {
     const faceMesh = new THREE.Mesh(faceGeom, faceMat);
     faceMesh.position.z = 0.2;
 
-    // 厚み（側面）
-    const sideGeom = new THREE.ExtrudeGeometry(shape, { depth: 10, bevelEnabled: false });
-    const sideMat = new THREE.MeshBasicMaterial({ color: 0x888888 }); 
+    // 側面の厚み (濃い目の色で立体感を強調)
+    const sideGeom = new THREE.ExtrudeGeometry(shape, { depth: 8, bevelEnabled: false });
+    const sideMat = new THREE.MeshBasicMaterial({ color: 0x666666 }); 
     const sideMesh = new THREE.Mesh(sideGeom, sideMat);
-    sideMesh.scale.z = 0.05; // 立体感を出すために厚めに
+    sideMesh.scale.z = 0.05;
     sideMesh.position.z = -0.2;
 
     const group = new THREE.Group();
     group.add(faceMesh, sideMesh);
     group.scale.set(scale, scale, 1);
-    // キャラクター自体を垂直に立たせる
-    group.rotation.x = -Math.PI / 2.5; 
+    
+    // ★ここが重要: カメラから見て「正面」が見えるように配置
+    group.position.y = 2; 
     return group;
 }
 
-// --- 3. 撮影機能 (Blobによる確実な実装) ---
+// --- 3. 撮影機能 (確実なプレビュー保存方式) ---
+function closePreview() { document.getElementById('shot-preview').style.display = 'none'; }
+
 document.getElementById('btn-capture').onclick = () => {
     const out = document.createElement('canvas');
-    out.width = video.videoWidth;
-    out.height = video.videoHeight;
-    const ctx = out.getContext('2d');
+    out.width = video.videoWidth; out.height = video.videoHeight;
+    const outCtx = out.getContext('2d');
     
-    // 背景カメラ映像
-    ctx.drawImage(video, 0, 0, out.width, out.height);
-    // ARレイヤー
-    ctx.drawImage(glCanvas, 0, 0, out.width, out.height);
+    // 1. カメラ映像を描画
+    outCtx.drawImage(video, 0, 0, out.width, out.height);
+    // 2. ARオブジェクトを描画 (Three.jsのキャンバスを重ねる)
+    outCtx.drawImage(glCanvas, 0, 0, out.width, out.height);
 
-    // Blobに変換して保存
-    out.toBlob((blob) => {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.style.display = 'none';
-        a.href = url;
-        a.download = `AR_PHOTO_${Date.now()}.png`;
-        document.body.appendChild(a);
-        a.click();
-        
-        // Android/iOSでの保険：うまくいかない場合は別タブで画像を開く
-        setTimeout(() => {
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(url);
-        }, 100);
-    }, 'image/png');
+    // 3. プレビュー表示
+    const dataUrl = out.toDataURL('image/png');
+    document.getElementById('preview-img').src = dataUrl;
+    document.getElementById('shot-preview').style.display = 'flex';
 };
 
-// --- 4. 操作系 (低速) ---
+// --- 4. ジョイスティック (低速・スムーズ) ---
 let ry=0, mx=0, mz=0, my=0;
 const knob = document.getElementById('knob'), joy = document.getElementById('joy');
-
 joy.addEventListener('touchmove', (e) => {
     e.preventDefault();
     const r = joy.getBoundingClientRect();
     const dx = e.touches[0].clientX - (r.left + r.width/2), dy = e.touches[0].clientY - (r.top + r.height/2);
     const dist = Math.sqrt(dx*dx + dy*dy), maxR = r.width / 2, limit = Math.min(dist, maxR), angle = Math.atan2(dy, dx);
     knob.style.transform = `translate(${Math.cos(angle)*limit}px, ${Math.sin(angle)*limit}px)`;
-
-    if (dist > maxR * 0.75) {
-        ry = -(dx / maxR) * 0.02; 
-        mx = mz = my = 0;
-    } else {
-        ry = 0;
-        mx = (dx / maxR) * 0.05; 
-        mz = (dy / maxR) * 0.05;
-        my = -(dy / maxR) * 0.05;
-    }
+    if (dist > maxR * 0.75) { ry = -(dx / maxR) * 0.02; mx = mz = my = 0; }
+    else { ry = 0; mx = (dx / maxR) * 0.08; mz = (dy / maxR) * 0.08; my = -(dy / maxR) * 0.08; }
 }, {passive:false});
 joy.addEventListener('touchend', () => { knob.style.transform = 'none'; ry=mx=mz=my=0; });
 
-// --- 5. UI制御とアニメーション ---
+// --- 5. UI制御 ---
 const cropEl = document.getElementById('crop'), photoCv = document.getElementById('photo-cv'), drawCv = document.getElementById('draw-cv'), drawCtx = drawCv.getContext('2d');
 let rawImg = new Image(), pts = [], drawing = false;
 
@@ -213,31 +197,28 @@ drawCv.addEventListener('touchmove', (e) => {
 
 document.getElementById('cb-ok').onclick = () => {
     if(pts.length < 3) return;
-    if(charObj) artGroup.remove(charObj);
+    if(charObj) scene.remove(charObj);
     charObj = createARModel(rawImg, pts, photoCv.width, photoCv.height);
-    artGroup.add(charObj);
+    scene.add(charObj);
     cropEl.classList.remove('on');
 };
-
 document.getElementById('btn-shoot').onclick = () => {
     const c = document.createElement('canvas'); c.width=video.videoWidth; c.height=video.videoHeight;
     c.getContext('2d').drawImage(video, 0, 0); openCrop(c.toDataURL());
 };
+document.getElementById('btn-file-trigger').onclick = () => document.getElementById('file-in').click();
+document.getElementById('cb-cancel').onclick = () => cropEl.classList.remove('on');
+document.getElementById('btn-del').onclick = () => { if(charObj) scene.remove(charObj); charObj=null; };
 
 function animate() {
     requestAnimationFrame(animate);
     if(charObj) {
         charObj.rotation.y += ry;
-        charObj.position.x += mx; 
-        charObj.position.z += mz; 
-        charObj.position.y += my;
+        charObj.position.x += mx; charObj.position.z += mz; charObj.position.y += my;
     }
     renderer.render(scene, camera);
 }
 animate();
-
-document.getElementById('cb-cancel').onclick = () => cropEl.classList.remove('on');
-document.getElementById('btn-del').onclick = () => { if(charObj) artGroup.remove(charObj); charObj=null; };
 </script>
 </body>
 </html>
