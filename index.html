@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>らくがきAR v19.0 - 立体立ち姿版</title>
+  <title>らくがきAR v20.0 - 50度傾斜・安定版</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { overflow: hidden; background: #000; touch-action: none; font-family: sans-serif; }
@@ -29,7 +29,7 @@
 <canvas id="gl-canvas"></canvas>
 
 <div id="ui">
-  <b>🎨 らくがきAR v19.0</b>
+  <b>🎨 らくがきAR v20.0</b>
   <div class="row">
     <div id="btn-shoot" class="btn">📷 撮影</div>
     <div id="btn-file-trigger" class="btn">🖼️ 選択</div>
@@ -38,7 +38,6 @@
   </div>
 </div>
 
-<!-- 素材選択用の隠し入力 -->
 <input type="file" id="file-in" accept="image/*" style="display:none">
 
 <div id="crop">
@@ -59,12 +58,11 @@ const video = document.getElementById('cam-video');
 const glCanvas = document.getElementById('gl-canvas');
 navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(s => video.srcObject = s);
 
-// --- 1. Three.js ---
+// --- 1. Three.js 設定 ---
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 1000);
-// 少し高い位置から見下ろすように配置
-camera.position.set(0, 5, 15);
-camera.lookAt(0, 2, 0);
+camera.position.set(0, 8, 18); // 少し遠目から見下ろす
+camera.lookAt(0, 0, 0);
 
 const renderer = new THREE.WebGLRenderer({ canvas: glCanvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(window.devicePixelRatio);
@@ -72,7 +70,7 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 
 let charObj;
 
-// --- 2. モデル生成 (色維持 + 垂直立ち) ---
+// --- 2. モデル生成 (50度傾斜バージョン) ---
 function createARModel(sourceImg, pts, viewW, viewH) {
     const sx = sourceImg.naturalWidth / viewW;
     const sy = sourceImg.naturalHeight / viewH;
@@ -96,32 +94,50 @@ function createARModel(sourceImg, pts, viewW, viewH) {
     ctx.drawImage(sourceImg, minX, minY, w, h, 0, 0, w, h);
 
     const tex = new THREE.CanvasTexture(canvas);
-    const scale = 6.0 / h;
+    const scale = 7.0 / h;
     const shape = new THREE.Shape();
     const cx = w / 2, cy = h / 2;
+    
+    // 足元(下端)を回転の軸にするため、座標のオフセットを調整
     shape.moveTo(imgPts[0].x - minX - cx, -(imgPts[0].y - minY - cy));
     for(let i=1; i<imgPts.length; i++) shape.lineTo(imgPts[i].x - minX - cx, -(imgPts[i].y - minY - cy));
 
-    // 厚み（側面）を持たせたジオメトリ
-    const geometry = new THREE.ExtrudeGeometry(shape, { depth: 15, bevelEnabled: false });
-    
-    // UVを表面にフィットさせる
+    const geometry = new THREE.ExtrudeGeometry(shape, { depth: 10, bevelEnabled: false });
     const pos = geometry.attributes.position;
     const uv = geometry.attributes.uv;
     for (let i = 0; i < pos.count; i++) {
         uv.setXY(i, (pos.getX(i) + cx) / w, (pos.getY(i) + cy) / h);
     }
 
-    // ★重要：MeshBasicMaterial で色をそのまま出す
     const material = new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.1, side: THREE.DoubleSide });
     const mesh = new THREE.Mesh(geometry, material);
     
-    mesh.scale.set(scale, scale, 0.05); // 厚みも調整
-    mesh.position.y = (h / 2) * scale; // 地面に接するように調整
+    mesh.scale.set(scale, scale, 0.05);
+    
+    // ★角度調整：手前に約50度傾ける (Math.PI / 180 * 50)
+    // 地面から立ち上がっているように見せる
+    mesh.rotation.x = -Math.PI / 180 * 50; 
+    mesh.position.y = 2; // 地面から少し浮かせる
+    
     return mesh;
 }
 
-// --- 3. 操作・UI ---
+// --- 3. 操作・不具合修正 ---
+const fileIn = document.getElementById('file-in');
+document.getElementById('btn-file-trigger').onclick = () => fileIn.click();
+
+fileIn.onchange = (e) => {
+    if(e.target.files[0]) {
+        const reader = new FileReader();
+        reader.onload = (f) => {
+            openCrop(f.target.result);
+            // ★重要：次に同じファイルを選んでも反応するようにリセット
+            fileIn.value = ""; 
+        };
+        reader.readAsDataURL(e.target.files[0]);
+    }
+};
+
 let ry=0, mx=0, mz=0;
 const knob = document.getElementById('knob'), joy = document.getElementById('joy');
 joy.addEventListener('touchmove', (e) => {
@@ -169,11 +185,6 @@ document.getElementById('btn-shoot').onclick = () => {
     const c = document.createElement('canvas'); c.width=video.videoWidth; c.height=video.videoHeight;
     c.getContext('2d').drawImage(video, 0, 0); openCrop(c.toDataURL());
 };
-
-// 選択ボタンの挙動
-const fileIn = document.getElementById('file-in');
-document.getElementById('btn-file-trigger').onclick = () => fileIn.click();
-fileIn.onchange = (e) => { if(e.target.files[0]) { const reader = new FileReader(); reader.onload = (f) => openCrop(f.target.result); reader.readAsDataURL(e.target.files[0]); } };
 
 document.getElementById('btn-capture').onclick = () => {
     const out = document.createElement('canvas'); out.width = video.videoWidth; out.height = video.videoHeight;
