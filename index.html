@@ -3,25 +3,26 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>らくがきAR v12.7 - 最終安定版</title>
+  <title>らくがきAR v12.8 - 記念撮影機能付き</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { overflow: hidden; background: #000; touch-action: none; font-family: sans-serif; }
     #cam-video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; }
     #gl-canvas { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
-    #ui { position: fixed; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.8); color: #fff; padding: 12px; border-radius: 10px; }
-    .row { display: flex; gap: 10px; margin-top: 8px; }
-    .btn { flex: 1; padding: 12px 8px; text-align: center; cursor: pointer; background: #444; border: 1px solid #fff; border-radius: 6px; color: #fff; font-size: 14px; }
+    #ui { position: fixed; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.8); color: #fff; padding: 12px; border-radius: 10px; width: 220px; }
+    .row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+    .btn { flex: 1; min-width: 80px; padding: 10px 5px; text-align: center; cursor: pointer; background: #444; border: 1px solid #fff; border-radius: 6px; color: #fff; font-size: 12px; font-weight: bold; }
+    #btn-capture { background: #e67e22; width: 100%; margin-top: 8px; }
     #crop { display: none; position: fixed; inset: 0; z-index: 100; flex-direction: column; background: #111; }
     #crop.on { display: flex; }
     #crop-wrap { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; }
     #photo-cv { max-width: 100%; max-height: 100%; }
     #draw-cv { position: absolute; touch-action: none; top: 50%; left: 50%; transform: translate(-50%, -50%); }
     #crop-btns { display: flex; gap: 20px; padding: 20px; background: #000; justify-content: center; }
-    #joy { position: fixed; bottom: 40px; left: 40px; z-index: 10; width: 120px; height: 120px; border-radius: 50%; background: rgba(255,255,255,0.1); border: 2px solid #fff; }
-    #knob { position: absolute; top: 50%; left: 50%; width: 50px; height: 50px; margin: -25px 0 0 -25px; background: #fff; border-radius: 50%; pointer-events: none; }
-    #vctrl { position: fixed; bottom: 40px; right: 30px; z-index: 10; display: flex; flex-direction: column; gap: 12px; }
-    .vbtn { width: 60px; height: 60px; border-radius: 50%; border: none; background: #fff; font-size: 28px; }
+    #joy { position: fixed; bottom: 40px; left: 40px; z-index: 10; width: 100px; height: 100px; border-radius: 50%; background: rgba(255,255,255,0.1); border: 2px solid #fff; }
+    #knob { position: absolute; top: 50%; left: 50%; width: 40px; height: 40px; margin: -20px 0 0 -20px; background: #fff; border-radius: 50%; pointer-events: none; }
+    #vctrl { position: fixed; bottom: 40px; right: 30px; z-index: 10; display: flex; flex-direction: column; gap: 10px; }
+    .vbtn { width: 55px; height: 55px; border-radius: 50%; border: none; background: #fff; font-size: 24px; }
   </style>
 </head>
 <body>
@@ -30,11 +31,12 @@
 <canvas id="gl-canvas"></canvas>
 
 <div id="ui">
-  <b>🎨 らくがきAR v12.7</b>
+  <b>🎨 らくがきAR v12.8</b>
   <div class="row">
-    <div id="btn-shoot" class="btn">📷 撮影</div>
-    <div id="btn-file-trigger" class="btn">🖼️ 選択</div>
+    <div id="btn-shoot" class="btn">📷 素材撮影</div>
+    <div id="btn-file-trigger" class="btn">🖼️ 素材選択</div>
     <div id="btn-del" class="btn" style="background:#822">🗑️ 消去</div>
+    <div id="btn-capture" class="btn">📸 いっしょに撮影！</div>
   </div>
   <input type="file" id="file-in" accept="image/*" style="display:none">
 </div>
@@ -58,23 +60,27 @@
 'use strict';
 
 const video = document.getElementById('cam-video');
+const glCanvas = document.getElementById('gl-canvas');
 navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(s => video.srcObject = s);
 
-// --- 1. Three.js セットアップ ---
+// --- 1. Three.js 設定 ---
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 1000);
 camera.position.set(0, 0, 10);
 
-const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('gl-canvas'), alpha: true, antialias: true });
+// preserveDrawingBuffer: true が記念撮影に必須
+const renderer = new THREE.WebGLRenderer({ 
+    canvas: glCanvas, 
+    alpha: true, 
+    antialias: true,
+    preserveDrawingBuffer: true 
+});
 renderer.setSize(window.innerWidth, window.innerHeight);
-
-const artGroup = new THREE.Group(); // キャラクター一式を入れる箱
-scene.add(artGroup);
 scene.add(new THREE.AmbientLight(0xffffff, 2.0));
 
-let characterGroup;
+let charObj;
 
-// --- 2. モデル生成 (絵と厚みを分離して確実に描画) ---
+// --- 2. モデル生成 (透過重視) ---
 function createARModel(sourceImg, pts, viewW, viewH) {
     const sx = sourceImg.naturalWidth / viewW;
     const sy = sourceImg.naturalHeight / viewH;
@@ -95,7 +101,6 @@ function createARModel(sourceImg, pts, viewW, viewH) {
     shape.moveTo(localPts[0].x - centerX, localPts[0].y - centerY);
     localPts.forEach(p => shape.lineTo(p.x - centerX, p.y - centerY));
 
-    // キャンバスから絵を切り出す
     const canvas = document.createElement('canvas');
     canvas.width = w; canvas.height = h;
     const ctx = canvas.getContext('2d');
@@ -103,27 +108,53 @@ function createARModel(sourceImg, pts, viewW, viewH) {
 
     const tex = new THREE.CanvasTexture(canvas);
     
-    // パーツA: 前面の絵 (平面に貼ることで色化けを防ぐ)
+    // マテリアル設定：colorを削除し、透過アルファテストを強化
+    const mat = new THREE.MeshBasicMaterial({ 
+        map: tex, 
+        transparent: true, 
+        alphaTest: 0.1, 
+        side: THREE.DoubleSide,
+        depthWrite: false 
+    });
+
+    // 前面
     const faceGeom = new THREE.ShapeGeometry(shape);
-    const faceMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.1, side: THREE.DoubleSide });
-    const faceMesh = new THREE.Mesh(faceGeom, faceMat);
-    faceMesh.position.z = 0.05;
+    const faceMesh = new THREE.Mesh(faceGeom, mat);
+    faceMesh.position.z = 0.1;
 
-    // パーツB: 厚み (押し出した形状、側面は白一色)
+    // 側面(厚み)
     const sideGeom = new THREE.ExtrudeGeometry(shape, { depth: 10, bevelEnabled: false });
-    const sideMat = new THREE.MeshBasicMaterial({ color: 0xeeeeee });
+    const sideMat = new THREE.MeshBasicMaterial({ color: 0xcccccc }); // 側面は薄いグレー
     const sideMesh = new THREE.Mesh(sideGeom, sideMat);
-    sideMesh.scale.z = 0.01;
-    sideMesh.position.z = -0.05;
+    sideMesh.scale.z = 0.02;
+    sideMesh.position.z = -0.1;
 
-    const container = new THREE.Group();
-    container.add(faceMesh, sideMesh);
-    container.scale.set(scale, scale, 1);
-    
-    return container;
+    const group = new THREE.Group();
+    group.add(faceMesh, sideMesh);
+    group.scale.set(scale, scale, 1);
+    return group;
 }
 
-// --- 3. UIロジック ---
+// --- 3. 記念撮影機能 ---
+document.getElementById('btn-capture').addEventListener('click', () => {
+    const outputCanvas = document.createElement('canvas');
+    outputCanvas.width = video.videoWidth;
+    outputCanvas.height = video.videoHeight;
+    const ctx = outputCanvas.getContext('2d');
+
+    // 1. カメラ映像を描画
+    ctx.drawImage(video, 0, 0, outputCanvas.width, outputCanvas.height);
+    // 2. ARキャンバスを重ねる
+    ctx.drawImage(glCanvas, 0, 0, outputCanvas.width, outputCanvas.height);
+
+    // 3. ダウンロード
+    const link = document.createElement('a');
+    link.download = `rakugaki_AR_${Date.now()}.png`;
+    link.href = outputCanvas.toDataURL('image/png');
+    link.click();
+});
+
+// --- 4. UI / 切り抜きロジック (省略せず最新を維持) ---
 const cropEl = document.getElementById('crop');
 const photoCv = document.getElementById('photo-cv');
 const drawCv = document.getElementById('draw-cv');
@@ -159,9 +190,9 @@ drawCv.addEventListener('touchmove', (e) => {
 
 document.getElementById('cb-ok').onclick = () => {
     if(pts.length < 3) return;
-    if(characterGroup) artGroup.remove(characterGroup);
-    characterGroup = createARModel(rawImg, pts, photoCv.width, photoCv.height);
-    artGroup.add(characterGroup);
+    if(charObj) scene.remove(charObj);
+    charObj = createARModel(rawImg, pts, photoCv.width, photoCv.height);
+    scene.add(charObj);
     cropEl.classList.remove('on');
 };
 
@@ -175,41 +206,37 @@ document.getElementById('file-in').onchange = (e) => {
     const f = e.target.files[0];
     if(f) { const rd = new FileReader(); rd.onload=(ev)=>openCrop(ev.target.result); rd.readAsDataURL(f); }
 };
+document.getElementById('cb-cancel').onclick = () => cropEl.classList.remove('on');
+document.getElementById('btn-del').onclick = () => { if(charObj) scene.remove(charObj); charObj=null; };
 
-// --- 4. 操作ロジック (感度調整済み) ---
-let rotY=0, moveZ=0, moveY=0;
+// --- 5. 操作系 ---
+let ry=0, mz=0, my=0;
 const knob = document.getElementById('knob');
 document.getElementById('joy').addEventListener('touchmove', (e) => {
     const r = document.getElementById('joy').getBoundingClientRect();
     const dx = e.touches[0].clientX - (r.left + r.width/2);
     const dy = e.touches[0].clientY - (r.top + r.height/2);
-    const d = Math.min(50, Math.sqrt(dx*dx+dy*dy));
+    const d = Math.min(40, Math.sqrt(dx*dx+dy*dy));
     const a = Math.atan2(dy, dx);
     knob.style.transform = `translate(${Math.cos(a)*d}px, ${Math.sin(a)*d}px)`;
-    
-    // 遊び（デッドゾーン）を設定して、意図しない回転を防ぐ
-    rotY = Math.abs(dx) > 15 ? -(dx/50) * 0.05 : 0; 
-    moveZ = Math.abs(dy) > 15 ? (dy/50) * 0.1 : 0;
+    ry = Math.abs(dx) > 20 ? -(dx/40) * 0.05 : 0; // デッドゾーンを広めに
+    mz = Math.abs(dy) > 20 ? (dy/40) * 0.15 : 0;
 });
-document.getElementById('joy').addEventListener('touchend', () => { knob.style.transform='none'; rotY=0; moveZ=0; });
-
-document.getElementById('vup').ontouchstart = () => moveY = 0.08;
-document.getElementById('vdn').ontouchstart = () => moveY = -0.08;
-window.addEventListener('touchend', () => moveY = 0);
+document.getElementById('joy').addEventListener('touchend', () => { knob.style.transform='none'; ry=0; mz=0; });
+document.getElementById('vup').ontouchstart = () => my = 0.1;
+document.getElementById('vdn').ontouchstart = () => my = -0.1;
+window.addEventListener('touchend', () => my = 0);
 
 function animate() {
     requestAnimationFrame(animate);
-    if(characterGroup) {
-        characterGroup.rotation.y += rotY;
-        artGroup.position.z += moveZ;
-        artGroup.position.y += moveY;
+    if(charObj) {
+        charObj.rotation.y += ry;
+        charObj.position.z += mz;
+        charObj.position.y += my;
     }
     renderer.render(scene, camera);
 }
 animate();
-
-document.getElementById('cb-cancel').onclick = () => cropEl.classList.remove('on');
-document.getElementById('btn-del').onclick = () => { if(characterGroup) artGroup.remove(characterGroup); characterGroup=null; };
 </script>
 </body>
 </html>
