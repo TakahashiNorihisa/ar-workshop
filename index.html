@@ -1,517 +1,243 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>らくがきAR v11.0</title>
+  <title>らくがきAR v12.0 - 立体回転版</title>
   <style>
+    /* スタイル設定は元のデザインを継承しつつ最適化 */
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { overflow: hidden; background: #000; touch-action: none; font-family: sans-serif; }
-
-    /* ── 背景カメラ映像 ── */
-    #cam-video {
-      position: fixed; inset: 0; width: 100%; height: 100%;
-      object-fit: cover; z-index: 0;
-    }
-
-    /* ── Three.js描画（透明背景） ── */
-    #gl-canvas {
-      position: fixed; inset: 0; width: 100%; height: 100%;
-      z-index: 1; pointer-events: none;
-    }
-
-    /* ── UIパネル ── */
-    #ui {
-      position: fixed; top: 10px; left: 10px; z-index: 10;
-      background: rgba(0,0,0,0.75); color: #fff;
-      padding: 10px 12px; border-radius: 10px; font-size: 12px; line-height: 2;
-    }
-    #ui b { font-size: 13px; }
-    #ver { font-size: 10px; color: #fa0; margin-left: 6px; }
-    #st  { color: #aef; font-size: 11px; display: block; }
+    #cam-video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; }
+    #gl-canvas { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
+    #ui { position: fixed; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.75); color: #fff; padding: 10px 12px; border-radius: 10px; font-size: 12px; }
     .row { display: flex; gap: 6px; margin-top: 4px; }
-    .btn {
-      flex: 1; padding: 7px 4px; text-align: center; cursor: pointer;
-      background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3);
-      border-radius: 6px; color: #fff; font-size: 11px; user-select: none;
-    }
-    .btn.red { background: rgba(255,60,60,0.3); border-color: rgba(255,100,100,0.5); }
-    #file-in { display: none; }
-
-    /* ── トリミング画面 ── */
-    #crop {
-      display: none; position: fixed; inset: 0; z-index: 20;
-      flex-direction: column; background: #111;
-    }
+    .btn { flex: 1; padding: 7px 4px; text-align: center; cursor: pointer; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); border-radius: 6px; color: #fff; }
+    #crop { display: none; position: fixed; inset: 0; z-index: 20; flex-direction: column; background: #111; }
     #crop.on { display: flex; }
-    #crop-hint {
-      flex-shrink: 0; padding: 8px; text-align: center;
-      background: #000; color: #0f0; font-size: 12px;
-    }
-    #crop-wrap {
-      flex: 1; display: flex; align-items: center; justify-content: center;
-      position: relative; overflow: hidden; background: #222;
-    }
+    #crop-wrap { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; }
     #photo-cv { display: block; max-width: 100%; max-height: 100%; }
-    #draw-cv  {
-      position: absolute; touch-action: none;
-      /* JSでphoto-cvに重ねてサイズ合わせ */
-    }
-    #crop-btns {
-      flex-shrink: 0; display: flex; gap: 10px; padding: 10px;
-      background: #000; justify-content: center;
-    }
-    .cbtn { padding: 10px 20px; border-radius: 8px; border: none; font-size: 13px; font-weight: bold; cursor: pointer; }
-    #cb-cancel { background: #555; color: #fff; }
-    #cb-reset  { background: #a60; color: #fff; }
-    #cb-ok     { background: #4af; color: #000; }
-
-    /* ── ジョイスティック ── */
-    #joy {
-      position: fixed; bottom: 38px; left: 38px; z-index: 10;
-      width: 110px; height: 110px; border-radius: 50%; touch-action: none;
-      background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.3);
-    }
-    #knob {
-      position: absolute; top: 50%; left: 50%;
-      width: 50px; height: 50px; margin: -25px 0 0 -25px;
-      background: rgba(255,255,255,0.85); border-radius: 50%;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
-      transition: transform 0.1s ease-out; pointer-events: none;
-    }
-    #joy-lbl {
-      position: fixed; bottom: 152px; left: 50px; z-index: 10;
-      color: rgba(255,255,255,0.45); font-size: 10px; text-align: center; width: 86px;
-    }
-
-    /* ── 上下ボタン ── */
-    #vctrl {
-      position: fixed; bottom: 38px; right: 28px; z-index: 10;
-      display: flex; flex-direction: column; gap: 8px;
-    }
-    .vbtn {
-      width: 52px; height: 52px; border-radius: 50%; border: none;
-      background: rgba(255,255,255,0.82); font-size: 22px; cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.35); user-select: none;
-    }
-    #v-lbl {
-      position: fixed; bottom: 152px; right: 32px; z-index: 10;
-      color: rgba(255,255,255,0.45); font-size: 10px; text-align: center; width: 44px;
-    }
+    #draw-cv { position: absolute; touch-action: none; }
+    #crop-btns { display: flex; gap: 10px; padding: 10px; background: #000; justify-content: center; }
+    .cbtn { padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer; }
+    #joy { position: fixed; bottom: 38px; left: 38px; z-index: 10; width: 110px; height: 110px; border-radius: 50%; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.3); }
+    #knob { position: absolute; top: 50%; left: 50%; width: 50px; height: 50px; margin: -25px 0 0 -25px; background: rgba(255,255,255,0.85); border-radius: 50%; }
+    #vctrl { position: fixed; bottom: 38px; right: 28px; z-index: 10; display: flex; flex-direction: column; gap: 8px; }
+    .vbtn { width: 52px; height: 52px; border-radius: 50%; border: none; background: rgba(255,255,255,0.8); font-size: 22px; }
   </style>
 </head>
 <body>
 
-<!-- ① カメラ映像（背景） -->
 <video id="cam-video" autoplay playsinline muted></video>
-
-<!-- ② Three.js描画キャンバス -->
 <canvas id="gl-canvas"></canvas>
 
-<!-- ③ UIパネル -->
 <div id="ui">
-  <b>🎨 らくがきAR</b><span id="ver">v11.0</span>
+  <b>🎨 未来の庁舎AR</b>
   <div class="row">
     <div class="btn" id="btn-shoot">📷 撮影</div>
+    <input type="file" id="file-in" accept="image/*" style="display:none">
     <div class="btn" id="btn-file">🖼️ 選択</div>
-    <div class="btn red" id="btn-del">🗑️ 消す</div>
+    <div class="btn" id="btn-del" style="background:rgba(255,0,0,0.3)">🗑️ 消去</div>
   </div>
-  <input type="file" id="file-in" accept="image/*">
-  <span id="st">撮影か画像選択してね</span>
 </div>
 
-<!-- ④ トリミング画面 -->
 <div id="crop">
-  <div id="crop-hint">指でなぞって絵を囲んでね ✏️ 外側は透明になります</div>
+  <div style="color:#0f0; text-align:center; padding:10px;">絵を指で囲んでね</div>
   <div id="crop-wrap">
     <canvas id="photo-cv"></canvas>
     <canvas id="draw-cv"></canvas>
   </div>
   <div id="crop-btns">
-    <button class="cbtn" id="cb-cancel">✕ キャンセル</button>
-    <button class="cbtn" id="cb-reset">↺ やり直し</button>
-    <button class="cbtn" id="cb-ok">✅ 決定</button>
+    <button class="cbtn" id="cb-cancel">✕</button>
+    <button class="cbtn" id="cb-ok" style="background:#4af">✅ 決定</button>
   </div>
 </div>
 
-<!-- ⑤ コントローラー -->
 <div id="joy"><div id="knob"></div></div>
-<div id="joy-lbl">左右・前後</div>
 <div id="vctrl">
   <button class="vbtn" id="vup">▲</button>
   <button class="vbtn" id="vdn">▼</button>
 </div>
-<div id="v-lbl">上下</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 'use strict';
 
-// ══════════════════════════════════════════
-//  カメラ映像を<video>に流す
-// ══════════════════════════════════════════
+// --- カメラ設定 ---
 const video = document.getElementById('cam-video');
-const st    = document.getElementById('st');
+navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+  .then(s => video.srcObject = s);
 
-navigator.mediaDevices.getUserMedia({
-  video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } },
-  audio: false
-}).then(stream => {
-  video.srcObject = stream;
-}).catch(err => {
-  st.textContent = 'カメラエラー: ' + err.message;
-});
-
-// ══════════════════════════════════════════
-//  Three.js
-//
-//  【立てる完全版】
-//  カメラ: position(0, 0, 5)、lookAt(0, 0, 0)
-//  → 視線は -Z 方向
-//  PlaneGeometry: デフォルトで法線が +Z
-//  → カメラに向かって「立っている」状態
-//  artMesh.rotation = (0,0,0) のまま、絶対に変えない
-//
-//  【厚みの出し方】
-//  BoxGeometry を plane の後ろに重ねて厚み感を演出
-// ══════════════════════════════════════════
-const glCanvas = document.getElementById('gl-canvas');
-const renderer = new THREE.WebGLRenderer({
-  canvas: glCanvas,
-  alpha: true,          // 背景透明
-  antialias: true,
-  premultipliedAlpha: false,
-});
-renderer.setClearColor(0x000000, 0);  // 完全透明クリア
-renderer.setPixelRatio(window.devicePixelRatio);
+// --- Three.js設定 ---
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('gl-canvas'), alpha: true, antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 
-const scene  = new THREE.Scene();
+// カメラ位置を調整（少し引いて、中心を見る）
+camera.position.set(0, 1.2, 5); 
+const group = new THREE.Group(); // 回転制御用のグループ
+scene.add(group);
+scene.add(new THREE.AmbientLight(0xffffff, 1.0));
 
-// カメラはZ=5、Y=0（水平）、-Z方向を向く
-const camera = new THREE.PerspectiveCamera(
-  45,
-  window.innerWidth / window.innerHeight,
-  0.01, 100
-);
-camera.position.set(0, 0, 5);
-camera.lookAt(0, 0, 0);
+let artMesh, edgeMesh;
 
-// ライト
-scene.add(new THREE.AmbientLight(0xffffff, 2));
-const dl = new THREE.DirectionalLight(0xffffff, 0.6);
-dl.position.set(1, 2, 3);
-scene.add(dl);
+// --- 背景透過処理 ---
+function processImage(photoCv, pts) {
+    const cv = document.createElement('canvas');
+    const ctx = cv.getContext('2d');
+    
+    // バウンディングボックスの計算
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    pts.forEach(p => {
+        minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+        maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+    });
 
-window.addEventListener('resize', () => {
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-});
+    const w = maxX - minX;
+    const h = maxY - minY;
+    cv.width = w; cv.height = h;
 
-// アート表示用メッシュ（最初は非表示）
-let artMesh = null;  // テクスチャPlane
-let edgeMesh = null; // 厚みBox
+    // パスを描画してクリップ
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x - minX, pts[0].y - minY);
+    pts.forEach(p => ctx.lineTo(p.x - minX, p.y - minY));
+    ctx.closePath();
+    ctx.clip();
 
-// ══════════════════════════════════════════
-//  ピクセル操作で透過させる
-//  ctx.isPointInPath() でパス外のピクセルのα=0にする
-// ══════════════════════════════════════════
-function makeTransparentCanvas(photoCv, pathInDrawCoords) {
-  // draw座標 → photo実ピクセル座標 に変換
-  const sx = photoCv.width  / drawCv.width;
-  const sy = photoCv.height / drawCv.height;
-  const pts = pathInDrawCoords.map(p => ({ x: p.x * sx, y: p.y * sy }));
-
-  // バウンディングボックス計算
-  let x0=1e9, y0=1e9, x1=-1e9, y1=-1e9;
-  pts.forEach(p => {
-    x0=Math.min(x0,p.x); x1=Math.max(x1,p.x);
-    y0=Math.min(y0,p.y); y1=Math.max(y1,p.y);
-  });
-  const pad = 8;
-  x0 = Math.max(0, Math.floor(x0-pad));
-  y0 = Math.max(0, Math.floor(y0-pad));
-  x1 = Math.min(photoCv.width,  Math.ceil(x1+pad));
-  y1 = Math.min(photoCv.height, Math.ceil(y1+pad));
-  const W = x1-x0, H = y1-y0;
-  if (W < 4 || H < 4) return null;
-
-  // 切り出し用canvas
-  const cv  = document.createElement('canvas');
-  cv.width  = W;
-  cv.height = H;
-  const ctx = cv.getContext('2d');
-
-  // 写真をコピー
-  ctx.drawImage(photoCv, x0, y0, W, H, 0, 0, W, H);
-
-  // ── ピクセル直接操作で透過 ──
-  // パスをoffsetして登録
-  ctx.beginPath();
-  ctx.moveTo(pts[0].x - x0, pts[0].y - y0);
-  for (let i = 1; i < pts.length; i++) {
-    ctx.lineTo(pts[i].x - x0, pts[i].y - y0);
-  }
-  ctx.closePath();
-
-  const imgData = ctx.getImageData(0, 0, W, H);
-  const d = imgData.data;
-  // 各ピクセルをパスの内外で判定
-  for (let py = 0; py < H; py++) {
-    for (let px = 0; px < W; px++) {
-      if (!ctx.isPointInPath(px + 0.5, py + 0.5)) {
-        d[(py * W + px) * 4 + 3] = 0; // α = 0（透明）
-      }
-    }
-  }
-  ctx.putImageData(imgData, 0, 0);
-
-  return { cv, aspect: W / H };
+    ctx.drawImage(photoCv, minX, minY, w, h, 0, 0, w, h);
+    return { cv, aspect: w / h };
 }
 
-// ══════════════════════════════════════════
-//  Three.jsオブジェクト生成・更新
-// ══════════════════════════════════════════
-function buildMesh(transparentCv, aspect) {
-  // 古いメッシュ削除
-  [artMesh, edgeMesh].forEach(m => {
-    if (m) {
-      scene.remove(m);
-      m.geometry.dispose();
-      m.material.dispose && m.material.dispose();
-      if (m.material.map) m.material.map.dispose();
-    }
-  });
-  artMesh = edgeMesh = null;
+function buildAR(data) {
+    if(artMesh) group.remove(artMesh, edgeMesh);
 
-  const H3 = 1.5;
-  const W3 = H3 * aspect;
-  const THICK = 0.05;
+    const tex = new THREE.CanvasTexture(data.cv);
+    const h = 2.0;
+    const w = h * data.aspect;
 
-  // テクスチャ作成
-  const tex = new THREE.CanvasTexture(transparentCv);
-  tex.minFilter = THREE.LinearFilter;
-  tex.magFilter = THREE.LinearFilter;
-  tex.needsUpdate = true;
+    // 前面（絵）
+    artMesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(w, h),
+        new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide })
+    );
+    
+    // 背面（厚み）
+    edgeMesh = new THREE.Mesh(
+        new THREE.BoxGeometry(w, h, 0.1),
+        new THREE.MeshLambertMaterial({ color: 0xeeeeee })
+    );
+    edgeMesh.position.z = -0.06;
 
-  // ── テクスチャPlane（正面を向いて立つ、rotation=0） ──
-  const planeMat = new THREE.MeshBasicMaterial({
-    map: tex,
-    transparent: true,
-    alphaTest: 0.05,     // α<0.05のピクセルは描画しない
-    side: THREE.DoubleSide,
-  });
-  artMesh = new THREE.Mesh(new THREE.PlaneGeometry(W3, H3), planeMat);
-  // ★ rotation は 0,0,0 のまま → カメラに向かって立っている
-  artMesh.position.set(0, 0, 0);
-  scene.add(artMesh);
-
-  // ── 厚みBox（planeの少し後ろ） ──
-  const boxMat = new THREE.MeshLambertMaterial({ color: 0xf5f0e8 });
-  edgeMesh = new THREE.Mesh(new THREE.BoxGeometry(W3, H3, THICK), boxMat);
-  edgeMesh.position.set(0, 0, -THICK / 2 - 0.001);
-  scene.add(edgeMesh);
-
-  st.textContent = '✨ 完了！コントローラーで動かしてね';
+    group.add(artMesh, edgeMesh);
+    group.position.set(0, 0, 0);
 }
 
-// ══════════════════════════════════════════
-//  トリミング画面
-// ══════════════════════════════════════════
-const cropEl  = document.getElementById('crop');
+// --- トリミングUIロジック ---
 const photoCv = document.getElementById('photo-cv');
-const photoCtx= photoCv.getContext('2d');
-const drawCv  = document.getElementById('draw-cv');
+const drawCv = document.getElementById('draw-cv');
 const drawCtx = drawCv.getContext('2d');
-let pts = [], drawing = false, lastP = null;
+let points = [], isDrawing = false;
 
-function fitDrawCv() {
-  const pr = photoCv.getBoundingClientRect();
-  const wr = document.getElementById('crop-wrap').getBoundingClientRect();
-  drawCv.width  = Math.round(pr.width);
-  drawCv.height = Math.round(pr.height);
-  drawCv.style.width  = pr.width  + 'px';
-  drawCv.style.height = pr.height + 'px';
-  drawCv.style.left   = (pr.left - wr.left) + 'px';
-  drawCv.style.top    = (pr.top  - wr.top)  + 'px';
+function startDraw(e) {
+    isDrawing = true;
+    const t = e.touches ? e.touches[0] : e;
+    const rect = drawCv.getBoundingClientRect();
+    points = [{ x: t.clientX - rect.left, y: t.clientY - rect.top }];
 }
 
-function getP(clientX, clientY) {
-  const r = drawCv.getBoundingClientRect();
-  return { x: clientX - r.left, y: clientY - r.top };
+function moveDraw(e) {
+    if(!isDrawing) return;
+    const t = e.touches ? e.touches[0] : e;
+    const rect = drawCv.getBoundingClientRect();
+    points.push({ x: t.clientX - rect.left, y: t.clientY - rect.top });
+    
+    drawCtx.clearRect(0,0,drawCv.width,drawCv.height);
+    drawCtx.strokeStyle = '#0f0';
+    drawCtx.lineWidth = 3;
+    drawCtx.beginPath();
+    drawCtx.moveTo(points[0].x, points[0].y);
+    points.forEach(p => drawCtx.lineTo(p.x, p.y));
+    drawCtx.stroke();
 }
 
-function repaint() {
-  drawCtx.clearRect(0, 0, drawCv.width, drawCv.height);
-  if (pts.length < 2) return;
-  drawCtx.beginPath();
-  drawCtx.moveTo(pts[0].x, pts[0].y);
-  for (let i = 1; i < pts.length; i++) drawCtx.lineTo(pts[i].x, pts[i].y);
-  if (!drawing && pts.length > 2) drawCtx.closePath();
-  drawCtx.fillStyle   = 'rgba(0,200,255,0.15)';
-  drawCtx.fill();
-  drawCtx.strokeStyle = '#00cfff';
-  drawCtx.lineWidth   = 2.5;
-  drawCtx.lineJoin    = 'round';
-  drawCtx.lineCap     = 'round';
-  drawCtx.stroke();
-}
+drawCv.addEventListener('touchstart', startDraw);
+drawCv.addEventListener('touchmove', moveDraw);
+window.addEventListener('touchend', () => isDrawing = false);
 
-// タッチ
-drawCv.addEventListener('touchstart', e => {
-  e.preventDefault();
-  drawing = true;
-  const p = getP(e.touches[0].clientX, e.touches[0].clientY);
-  pts = [p]; lastP = p; repaint();
-}, { passive: false });
-drawCv.addEventListener('touchmove', e => {
-  e.preventDefault();
-  if (!drawing) return;
-  const p = getP(e.touches[0].clientX, e.touches[0].clientY);
-  if (Math.hypot(p.x-lastP.x, p.y-lastP.y) > 5) { pts.push(p); lastP = p; repaint(); }
-}, { passive: false });
-drawCv.addEventListener('touchend', e => {
-  e.preventDefault(); drawing = false; lastP = null; repaint();
-}, { passive: false });
-// マウス（PC確認用）
-drawCv.addEventListener('mousedown',  e => { drawing=true; const p=getP(e.clientX,e.clientY); pts=[p]; lastP=p; repaint(); });
-window.addEventListener ('mousemove', e => { if(!drawing)return; const p=getP(e.clientX,e.clientY); if(Math.hypot(p.x-lastP.x,p.y-lastP.y)>5){pts.push(p);lastP=p;repaint();} });
-window.addEventListener ('mouseup',   () => { drawing=false; lastP=null; repaint(); });
+document.getElementById('btn-shoot').onclick = () => {
+    const tempCv = document.createElement('canvas');
+    tempCv.width = video.videoWidth; tempCv.height = video.videoHeight;
+    tempCv.getContext('2d').drawImage(video, 0, 0);
+    
+    const img = new Image();
+    img.onload = () => {
+        const stageH = window.innerHeight * 0.7;
+        const scale = stageH / img.height;
+        photoCv.width = drawCv.width = img.width * scale;
+        photoCv.height = drawCv.height = img.height * scale;
+        photoCv.getContext('2d').drawImage(img, 0, 0, photoCv.width, photoCv.height);
+        document.getElementById('crop').classList.add('on');
+    };
+    img.src = tempCv.toDataURL();
+};
 
-document.getElementById('cb-reset').addEventListener('click', () => {
-  pts = []; drawCtx.clearRect(0, 0, drawCv.width, drawCv.height);
-});
-document.getElementById('cb-cancel').addEventListener('click', () => {
-  pts = []; cropEl.classList.remove('on');
-});
-document.getElementById('cb-ok').addEventListener('click', () => {
-  if (pts.length < 3) { alert('まず指でなぞって範囲を囲んでね'); return; }
-  const result = makeTransparentCanvas(photoCv, pts);
-  if (!result) { alert('もう少し広い範囲を囲んでね'); return; }
-  cropEl.classList.remove('on');
-  pts = []; drawCtx.clearRect(0, 0, drawCv.width, drawCv.height);
-  buildMesh(result.cv, result.aspect);
-});
+document.getElementById('cb-ok').onclick = () => {
+    const result = processImage(photoCv, points);
+    buildAR(result);
+    document.getElementById('crop').classList.remove('on');
+    drawCtx.clearRect(0,0,drawCv.width,drawCv.height);
+};
 
-function openCrop(img) {
-  const mw = window.innerWidth, mh = window.innerHeight - 120;
-  const r  = Math.min(mw / img.width, mh / img.height, 1);
-  photoCv.width  = Math.round(img.width  * r);
-  photoCv.height = Math.round(img.height * r);
-  photoCv.style.width  = photoCv.width  + 'px';
-  photoCv.style.height = photoCv.height + 'px';
-  photoCtx.drawImage(img, 0, 0, photoCv.width, photoCv.height);
-  pts = []; cropEl.classList.add('on');
-  setTimeout(() => { fitDrawCv(); drawCtx.clearRect(0,0,drawCv.width,drawCv.height); }, 80);
-}
+// --- ジョイスティック & 回転制御 ---
+let moveX = 0, moveZ = 0, rotY = 0;
+const knob = document.getElementById('knob');
+document.getElementById('joy').ontouchmove = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const cx = rect.left + rect.width/2;
+    const cy = rect.top + rect.height/2;
+    const dx = e.touches[0].clientX - cx;
+    const dy = e.touches[0].clientY - cy;
+    const dist = Math.min(50, Math.sqrt(dx*dx + dy*dy));
+    const angle = Math.atan2(dy, dx);
+    
+    knob.style.transform = `translate(${Math.cos(angle)*dist}px, ${Math.sin(angle)*dist}px)`;
+    moveX = (dx/50) * 0.05; // 左右回転
+    moveZ = (dy/50) * 0.1;  // 前後移動
+};
 
-// 撮影
-document.getElementById('btn-shoot').addEventListener('click', () => {
-  const snap = document.createElement('canvas');
-  snap.width  = video.videoWidth  || 640;
-  snap.height = video.videoHeight || 480;
-  snap.getContext('2d').drawImage(video, 0, 0);
-  const img = new Image();
-  img.onload = () => openCrop(img);
-  img.src = snap.toDataURL('image/jpeg', 0.9);
-});
-// ファイル選択
-document.getElementById('btn-file').addEventListener('click', () => document.getElementById('file-in').click());
-document.getElementById('file-in').addEventListener('change', e => {
-  const f = e.target.files[0]; if (!f) return;
-  const rd = new FileReader();
-  rd.onload = ev => { const img = new Image(); img.onload = () => openCrop(img); img.src = ev.target.result; };
-  rd.readAsDataURL(f);
-  e.target.value = '';
-});
-// 消す
-document.getElementById('btn-del').addEventListener('click', () => {
-  [artMesh, edgeMesh].forEach(m => {
-    if (m) { scene.remove(m); m.geometry.dispose(); if (m.material.map) m.material.map.dispose(); m.material.dispose(); }
-  });
-  artMesh = edgeMesh = null;
-  st.textContent = '消しました。また読み込んでね';
-});
-
-// ══════════════════════════════════════════
-//  コントローラー
-// ══════════════════════════════════════════
-const joyEl = document.getElementById('joy');
-const knob  = document.getElementById('knob');
-let joyOn=false, jox=0, joy=0, iX=0, iZ=0, vX=0, vZ=0;
-const JR = 30;
-
-joyEl.addEventListener('touchstart', e => {
-  e.preventDefault(); joyOn=true;
-  jox=e.touches[0].clientX; joy=e.touches[0].clientY;
-  knob.style.transition='none';
-}, { passive: false });
-window.addEventListener('touchmove', e => {
-  if (!joyOn) return; e.preventDefault();
-  const t=e.touches[0], dx=t.clientX-jox, dy=t.clientY-joy;
-  const d=Math.sqrt(dx*dx+dy*dy), c=Math.min(d,JR), a=Math.atan2(dy,dx);
-  knob.style.transform = `translate(${c*Math.cos(a)}px,${c*Math.sin(a)}px)`;
-  iX=dx/JR; iZ=dy/JR;
-  jox=t.clientX; joy=t.clientY;
-}, { passive: false });
-window.addEventListener('touchend', () => {
-  joyOn=false; iX=0; iZ=0;
-  knob.style.transition='transform 0.12s ease-out';
-  knob.style.transform='translate(0,0)';
-});
+document.getElementById('joy').ontouchend = () => {
+    knob.style.transform = `translate(0,0)`;
+    moveX = 0; moveZ = 0;
+};
 
 // 上下ボタン
-let vt=null;
-const moveY = d => {
-  if (artMesh)  artMesh.position.y  += d;
-  if (edgeMesh) edgeMesh.position.y += d;
+let moveY = 0;
+document.getElementById('vup').ontouchstart = () => moveY = 0.05;
+document.getElementById('vdn').ontouchstart = () => moveY = -0.05;
+window.ontouchend = () => moveY = 0;
+
+// --- アニメーションループ ---
+function animate() {
+    requestAnimationFrame(animate);
+    
+    if(artMesh) {
+        // 左右入力でグループ全体を回転（向こう側にいける）
+        group.rotation.y -= moveX * 2;
+        // 前後入力でカメラからの距離を変える
+        group.position.z -= moveZ;
+        // 上下
+        group.position.y += moveY;
+    }
+    
+    renderer.render(scene, camera);
+}
+animate();
+
+document.getElementById('btn-del').onclick = () => {
+    group.remove(artMesh, edgeMesh);
+    artMesh = null;
 };
-const startY = d => { moveY(d); vt=setInterval(()=>moveY(d),100); };
-const stopY  = () => clearInterval(vt);
-['touchstart','mousedown'].forEach(ev => {
-  document.getElementById('vup').addEventListener(ev,e=>{e.preventDefault();startY( 0.06);},{passive:false});
-  document.getElementById('vdn').addEventListener(ev,e=>{e.preventDefault();startY(-0.06);},{passive:false});
-});
-['touchend','mouseup'].forEach(ev => {
-  document.getElementById('vup').addEventListener(ev,stopY);
-  document.getElementById('vdn').addEventListener(ev,stopY);
-});
-
-// ══════════════════════════════════════════
-//  レンダーループ
-//  左右移動 → Y軸回転
-//  前後移動 → X軸回転
-// ══════════════════════════════════════════
-const SP=0.035, FR=0.82, RY=0.65, RX=0.45, LR=0.09;
-let tRY=0, tRX=0;
-
-function moveXZ(dx, dz) {
-  if (artMesh)  { artMesh.position.x  += dx; artMesh.position.z  += dz; }
-  if (edgeMesh) { edgeMesh.position.x += dx; edgeMesh.position.z += dz; }
-}
-function setRot(ry, rx) {
-  if (artMesh)  { artMesh.rotation.y  = ry; artMesh.rotation.x  = rx; }
-  if (edgeMesh) { edgeMesh.rotation.y = ry; edgeMesh.rotation.x = rx; }
-}
-
-(function loop() {
-  requestAnimationFrame(loop);
-
-  vX = vX * FR + iX * SP;
-  vZ = vZ * FR + iZ * SP;
-  moveXZ(vX, vZ);
-
-  tRY += ((-vX/SP*RY) - tRY) * LR;
-  tRX += (( vZ/SP*RX) - tRX) * LR;
-  setRot(
-    Math.max(-RY, Math.min(RY, tRY)),
-    Math.max(-RX, Math.min(RX, tRX))
-  );
-
-  renderer.render(scene, camera);
-})();
 </script>
 </body>
 </html>
