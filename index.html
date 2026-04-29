@@ -74,16 +74,13 @@ scene.add(new THREE.AmbientLight(0xffffff, 2.0));
 
 let charObj;
 
-// --- 2. モデル生成 (座標計算とマスク処理の完全修正) ---
+// --- 2. モデル生成 (青一色になる問題を完全修正) ---
 function createARModel(sourceImg, pts, viewW, viewH) {
-    // 画像本来のサイズと画面上の表示サイズの比率
     const sx = sourceImg.naturalWidth / viewW;
     const sy = sourceImg.naturalHeight / viewH;
 
-    // タップ座標を「元画像のピクセル座標」に正確に変換
     const imgPts = pts.map(p => ({ x: p.x * sx, y: p.y * sy }));
 
-    // バウンディングボックス（切り抜く四角形の範囲）を計算
     let minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
     imgPts.forEach(p => {
         minX=Math.min(minX, p.x); maxX=Math.max(maxX, p.x);
@@ -98,27 +95,21 @@ function createARModel(sourceImg, pts, viewW, viewH) {
     canvas.width = w; canvas.height = h;
     const ctx = canvas.getContext('2d');
 
-    // ★重要: Three.jsの座標系に合わせるため、描画前に上下反転させる
-    ctx.translate(0, h);
-    ctx.scale(1, -1);
-
-    // 元画像から必要な範囲を切り出して描画
-    ctx.drawImage(sourceImg, minX, minY, w, h, 0, 0, w, h);
-
-    // ★超重要: なぞった形に沿って「型抜き」する（これ以外の部分は透明になる）
-    ctx.globalCompositeOperation = 'destination-in';
+    // ★修正1：切り抜き（マスク）処理を最も確実な「clip()」に変更
     ctx.beginPath();
     ctx.moveTo(imgPts[0].x - minX, imgPts[0].y - minY);
     for(let i=1; i<imgPts.length; i++) {
         ctx.lineTo(imgPts[i].x - minX, imgPts[i].y - minY);
     }
     ctx.closePath();
-    ctx.fill();
+    ctx.clip(); // 先に「型枠」を作る
+
+    // 型枠の中にだけ画像を流し込む
+    ctx.drawImage(sourceImg, minX, minY, w, h, 0, 0, w, h);
 
     const tex = new THREE.CanvasTexture(canvas);
     tex.format = THREE.RGBAFormat;
-    
-    // Shape（3Dの輪郭）作成
+
     const scale = 4.0 / h;
     const shape = new THREE.Shape();
     const cx = w / 2; const cy = h / 2;
@@ -128,8 +119,22 @@ function createARModel(sourceImg, pts, viewW, viewH) {
         shape.lineTo(imgPts[i].x - minX - cx, -(imgPts[i].y - minY - cy));
     }
 
-    // 前面（絵）
     const faceGeom = new THREE.ShapeGeometry(shape);
+
+    // ★★★ 決定的な修正ポイント：UVマップ（テクスチャの貼り付け座標）を強制補正 ★★★
+    const pos = faceGeom.attributes.position;
+    const uv = faceGeom.attributes.uv;
+    for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i);
+        const y = pos.getY(i);
+        // 頂点座標を 0.0 ～ 1.0 の割合に変換して、テクスチャのサイズにぴったり合わせる
+        const u = (x + cx) / w;
+        const v = (y + cy) / h;
+        uv.setXY(i, u, v);
+    }
+    uv.needsUpdate = true;
+    // ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
     const mat = new THREE.MeshBasicMaterial({ 
         map: tex, 
         transparent: true, 
@@ -140,7 +145,7 @@ function createARModel(sourceImg, pts, viewW, viewH) {
     const faceMesh = new THREE.Mesh(faceGeom, mat);
     faceMesh.position.z = 0.1;
 
-    // 厚み（側面・背面は白グレー）
+    // 厚み（側面・背面はグレー）
     const sideGeom = new THREE.ExtrudeGeometry(shape, { depth: 10, bevelEnabled: false });
     const sideMat = new THREE.MeshBasicMaterial({ color: 0xdddddd });
     const sideMesh = new THREE.Mesh(sideGeom, sideMat);
@@ -150,6 +155,7 @@ function createARModel(sourceImg, pts, viewW, viewH) {
     const group = new THREE.Group();
     group.add(faceMesh, sideMesh);
     group.scale.set(scale, scale, 1);
+    
     return group;
 }
 
