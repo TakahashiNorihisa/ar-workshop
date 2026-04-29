@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>らくがきAR v21.0 - 70度直立・安定版</title>
+  <title>らくがきAR v22.0 - 50度傾斜・安定版</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { overflow: hidden; background: #000; touch-action: none; font-family: sans-serif; }
@@ -29,7 +29,7 @@
 <canvas id="gl-canvas"></canvas>
 
 <div id="ui">
-  <b>🎨 らくがきAR v21.0</b>
+  <b>🎨 らくがきAR v22.0</b>
   <div class="row">
     <div id="btn-shoot" class="btn">📷 撮影</div>
     <div id="btn-file-trigger" class="btn">🖼️ 選択</div>
@@ -60,6 +60,7 @@ navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).th
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 1000);
+// 少し高めから見下ろす視点を維持
 camera.position.set(0, 8, 18);
 camera.lookAt(0, 2, 0);
 
@@ -95,7 +96,6 @@ function createARModel(sourceImg, pts, viewW, viewH) {
     const shape = new THREE.Shape();
     const cx = w / 2, cy = h / 2;
     
-    // 足元を軸にするための座標設定
     shape.moveTo(imgPts[0].x - minX - cx, -(imgPts[0].y - minY - cy));
     for(let i=1; i<imgPts.length; i++) shape.lineTo(imgPts[i].x - minX - cx, -(imgPts[i].y - minY - cy));
 
@@ -111,14 +111,14 @@ function createARModel(sourceImg, pts, viewW, viewH) {
     
     mesh.scale.set(scale, scale, 0.05);
     
-    // ★向きを修正：プラス方向に回転させることで頭が手前に起きます
-    // 角度を70度に設定
-    mesh.rotation.x = Math.PI / 180 * 70; 
+    // ★角度を50度に再設定
+    mesh.rotation.x = Math.PI / 180 * 50; 
     mesh.position.y = 1; 
     
     return mesh;
 }
 
+// ファイル選択時のリセット処理
 const fileIn = document.getElementById('file-in');
 document.getElementById('btn-file-trigger').onclick = () => fileIn.click();
 fileIn.onchange = (e) => {
