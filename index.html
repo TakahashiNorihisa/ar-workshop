@@ -3,15 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>らくがきAR v18.0 - 立ち上がる立体版</title>
+  <title>らくがきAR v19.0 - 立体立ち姿版</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { overflow: hidden; background: #000; touch-action: none; font-family: sans-serif; }
     #cam-video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; }
     #gl-canvas { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
     #ui { position: fixed; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.8); color: #fff; padding: 12px; border-radius: 10px; width: 220px; }
-    .btn { display: block; width: 100%; padding: 10px; margin-top: 8px; text-align: center; cursor: pointer; background: #444; border: 1px solid #fff; border-radius: 6px; color: #fff; font-size: 12px; font-weight: bold; }
-    #btn-capture { background: #e67e22; }
+    .row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+    .btn { flex: 1; min-width: 80px; padding: 10px 5px; text-align: center; cursor: pointer; background: #444; border: 1px solid #fff; border-radius: 6px; color: #fff; font-size: 12px; font-weight: bold; }
+    #btn-capture { background: #e67e22; width: 100%; margin-top: 8px; }
     #crop { display: none; position: fixed; inset: 0; z-index: 100; flex-direction: column; background: #111; }
     #crop.on { display: flex; }
     #crop-wrap { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; }
@@ -28,17 +29,23 @@
 <canvas id="gl-canvas"></canvas>
 
 <div id="ui">
-  <b>🎨 らくがきAR v18.0</b>
-  <div id="btn-shoot" class="btn">📷 描いた絵を撮る</div>
-  <div id="btn-del" class="btn" style="background:#822">🗑️ 消去</div>
-  <div id="btn-capture" class="btn">📸 写真として保存</div>
+  <b>🎨 らくがきAR v19.0</b>
+  <div class="row">
+    <div id="btn-shoot" class="btn">📷 撮影</div>
+    <div id="btn-file-trigger" class="btn">🖼️ 選択</div>
+    <div id="btn-del" class="btn" style="background:#822">🗑️ 消去</div>
+    <div id="btn-capture" class="btn">📸 保存</div>
+  </div>
 </div>
+
+<!-- 素材選択用の隠し入力 -->
+<input type="file" id="file-in" accept="image/*" style="display:none">
 
 <div id="crop">
   <div id="crop-wrap"><canvas id="photo-cv"></canvas><canvas id="draw-cv"></canvas></div>
   <div id="crop-btns">
     <button id="cb-cancel" class="btn" style="background:#555;">戻る</button>
-    <button id="cb-ok" class="btn" style="background:#007bff;">これにする！</button>
+    <button id="cb-ok" class="btn" style="background:#007bff;">生成</button>
   </div>
 </div>
 
@@ -52,20 +59,20 @@ const video = document.getElementById('cam-video');
 const glCanvas = document.getElementById('gl-canvas');
 navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(s => video.srcObject = s);
 
-// --- 1. Three.js: 「見下ろし」視点を固定 ---
+// --- 1. Three.js ---
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 1000);
-// カメラを高くし、少し前方に傾ける（立体感が一番出る角度）
-camera.position.set(0, 6, 12); 
-camera.lookAt(0, 1, 0);
+// 少し高い位置から見下ろすように配置
+camera.position.set(0, 5, 15);
+camera.lookAt(0, 2, 0);
 
 const renderer = new THREE.WebGLRenderer({ canvas: glCanvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
 
-let charGroup; // キャラ本体と影をまとめるグループ
+let charObj;
 
-// --- 2. モデル生成 (立ち上がる構造) ---
+// --- 2. モデル生成 (色維持 + 垂直立ち) ---
 function createARModel(sourceImg, pts, viewW, viewH) {
     const sx = sourceImg.naturalWidth / viewW;
     const sy = sourceImg.naturalHeight / viewH;
@@ -89,65 +96,32 @@ function createARModel(sourceImg, pts, viewW, viewH) {
     ctx.drawImage(sourceImg, minX, minY, w, h, 0, 0, w, h);
 
     const tex = new THREE.CanvasTexture(canvas);
-    const scale = 5.0 / h; 
+    const scale = 6.0 / h;
     const shape = new THREE.Shape();
     const cx = w / 2, cy = h / 2;
-    
-    // 足元を(0,0)にするための座標変換
     shape.moveTo(imgPts[0].x - minX - cx, -(imgPts[0].y - minY - cy));
     for(let i=1; i<imgPts.length; i++) shape.lineTo(imgPts[i].x - minX - cx, -(imgPts[i].y - minY - cy));
 
-    // 本体（立ち上がる面）
-    const geometry = new THREE.ExtrudeGeometry(shape, { depth: 12, bevelEnabled: false });
+    // 厚み（側面）を持たせたジオメトリ
+    const geometry = new THREE.ExtrudeGeometry(shape, { depth: 15, bevelEnabled: false });
     
-    // UV補正（表面に絵を出す）
-    const uv = geometry.attributes.uv;
+    // UVを表面にフィットさせる
     const pos = geometry.attributes.position;
+    const uv = geometry.attributes.uv;
     for (let i = 0; i < pos.count; i++) {
         uv.setXY(i, (pos.getX(i) + cx) / w, (pos.getY(i) + cy) / h);
     }
 
-    // マテリアルを2種用意（0: 側面、1: 表面）
-    const matSide = new THREE.MeshBasicMaterial({ color: 0x444444 });
-    const matFace = new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.1 });
-    const mesh = new THREE.Mesh(geometry, [matSide, matFace]);
+    // ★重要：MeshBasicMaterial で色をそのまま出す
+    const material = new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.1, side: THREE.DoubleSide });
+    const mesh = new THREE.Mesh(geometry, material);
     
-    // 足元が地面(Y=0)に付くように調整
-    mesh.position.y = (h/2) * scale;
-    mesh.scale.set(scale, scale, 0.05);
-
-    // ★影の追加 (地面があるように見せる重要ポイント)
-    const shadowGeom = new THREE.CircleGeometry(1.5, 32);
-    const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3 });
-    const shadow = new THREE.Mesh(shadowGeom, shadowMat);
-    shadow.rotation.x = -Math.PI / 2;
-    shadow.position.y = 0.01;
-
-    const group = new THREE.Group();
-    group.add(mesh, shadow);
-    
-    // 出現時のアニメーション用フラグ
-    group.isNew = true;
-    group.jumpV = 0.3;
-
-    return group;
+    mesh.scale.set(scale, scale, 0.05); // 厚みも調整
+    mesh.position.y = (h / 2) * scale; // 地面に接するように調整
+    return mesh;
 }
 
-// --- 3. 撮影機能の完全修正 (直リンク保存) ---
-document.getElementById('btn-capture').onclick = () => {
-    const out = document.createElement('canvas');
-    out.width = video.videoWidth; out.height = video.videoHeight;
-    const ctx = out.getContext('2d');
-    ctx.drawImage(video, 0, 0, out.width, out.height);
-    ctx.drawImage(glCanvas, 0, 0, out.width, out.height);
-    
-    const link = document.createElement('a');
-    link.download = `rakugaki_ar_${Date.now()}.png`;
-    link.href = out.toDataURL('image/png');
-    link.click();
-};
-
-// --- 4. 操作 (ジョイスティック) ---
+// --- 3. 操作・UI ---
 let ry=0, mx=0, mz=0;
 const knob = document.getElementById('knob'), joy = document.getElementById('joy');
 joy.addEventListener('touchmove', (e) => {
@@ -161,7 +135,6 @@ joy.addEventListener('touchmove', (e) => {
 }, {passive:false});
 joy.addEventListener('touchend', () => { knob.style.transform = 'none'; ry=mx=mz=0; });
 
-// --- 5. UIと描画 ---
 const cropEl = document.getElementById('crop'), photoCv = document.getElementById('photo-cv'), drawCv = document.getElementById('draw-cv'), drawCtx = drawCv.getContext('2d');
 let rawImg = new Image(), pts = [], drawing = false;
 
@@ -180,43 +153,43 @@ const getP = (e) => { const r = drawCv.getBoundingClientRect(), t = e.touches ? 
 drawCv.addEventListener('touchstart', (e) => { e.preventDefault(); drawing = true; pts = [getP(e)]; }, {passive:false});
 drawCv.addEventListener('touchmove', (e) => {
     if(!drawing) return; pts.push(getP(e));
-    drawCtx.clearRect(0,0,drawCv.width,drawCv.height); drawCtx.strokeStyle="#0f0"; drawCtx.lineWidth=4;
+    drawCtx.clearRect(0,0,drawCv.width,drawCtx.height); drawCtx.strokeStyle="#0f0"; drawCtx.lineWidth=4;
     drawCtx.beginPath(); drawCtx.moveTo(pts[0].x, pts[0].y); pts.forEach(p => drawCtx.lineTo(p.x, p.y)); drawCtx.stroke();
 }, {passive:false});
 
 document.getElementById('cb-ok').onclick = () => {
     if(pts.length < 3) return;
-    if(charGroup) scene.remove(charGroup);
-    charGroup = createARModel(rawImg, pts, photoCv.width, photoCv.height);
-    scene.add(charGroup);
+    if(charObj) scene.remove(charObj);
+    charObj = createARModel(rawImg, pts, photoCv.width, photoCv.height);
+    scene.add(charObj);
     cropEl.classList.remove('on');
 };
+
 document.getElementById('btn-shoot').onclick = () => {
     const c = document.createElement('canvas'); c.width=video.videoWidth; c.height=video.videoHeight;
     c.getContext('2d').drawImage(video, 0, 0); openCrop(c.toDataURL());
 };
 
+// 選択ボタンの挙動
+const fileIn = document.getElementById('file-in');
+document.getElementById('btn-file-trigger').onclick = () => fileIn.click();
+fileIn.onchange = (e) => { if(e.target.files[0]) { const reader = new FileReader(); reader.onload = (f) => openCrop(f.target.result); reader.readAsDataURL(e.target.files[0]); } };
+
+document.getElementById('btn-capture').onclick = () => {
+    const out = document.createElement('canvas'); out.width = video.videoWidth; out.height = video.videoHeight;
+    const ctx = out.getContext('2d'); ctx.drawImage(video, 0, 0); ctx.drawImage(glCanvas, 0, 0, out.width, out.height);
+    const link = document.createElement('a'); link.download = `AR_${Date.now()}.png`; link.href = out.toDataURL(); link.click();
+};
+
 function animate() {
     requestAnimationFrame(animate);
-    if(charGroup) {
-        charGroup.rotation.y += ry;
-        charGroup.position.x += mx; charGroup.position.z += mz;
-        
-        // ぴょんぴょん跳ねる出現アニメーション
-        if(charGroup.isNew) {
-            charGroup.position.y += charGroup.jumpV;
-            charGroup.jumpV -= 0.02;
-            if(charGroup.position.y <= 0) {
-                charGroup.position.y = 0;
-                charGroup.isNew = false;
-            }
-        }
-    }
+    if(charObj) { charObj.rotation.y += ry; charObj.position.x += mx; charObj.position.z += mz; }
     renderer.render(scene, camera);
 }
 animate();
+
 document.getElementById('cb-cancel').onclick = () => cropEl.classList.remove('on');
-document.getElementById('btn-del').onclick = () => { if(charGroup) scene.remove(charGroup); charGroup=null; };
+document.getElementById('btn-del').onclick = () => { if(charObj) scene.remove(charObj); charObj=null; };
 </script>
 </body>
 </html>
