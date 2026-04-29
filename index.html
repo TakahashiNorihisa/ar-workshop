@@ -3,11 +3,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>らくがきAR v27.0 - 安定版</title>
+  <title>らくがきAR v28.0 - 江別市役所新庁舎記念撮影版</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { overflow: hidden; background: #000; touch-action: none; font-family: sans-serif; }
-    #cam-video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; }
+    
+    /* 背景画像を固定 */
+    #bg-container {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background-image: url('shinchosha.png'); /* 江別市役所新庁舎画像 */
+      background-size: cover;
+      background-position: center;
+    }
+
     #gl-canvas { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
     #ui { position: fixed; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.8); color: #fff; padding: 12px; border-radius: 10px; width: 220px; }
     .row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
@@ -17,7 +27,6 @@
     #crop { display: none; position: fixed; inset: 0; z-index: 100; flex-direction: column; background: #111; }
     #crop.on { display: flex; }
     #crop-wrap { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; background: #222; overflow: hidden; }
-    /* キャンバスを中央に固定 */
     #canvas-area { position: relative; display: inline-block; }
     #photo-cv { display: block; max-width: 100vw; max-height: 80vh; object-fit: contain; }
     #draw-cv { position: absolute; top: 0; left: 0; width: 100%; height: 100%; touch-action: none; }
@@ -29,16 +38,15 @@
 </head>
 <body>
 
-<video id="cam-video" autoplay playsinline muted></video>
+<div id="bg-container"></div>
 <canvas id="gl-canvas"></canvas>
 
 <div id="ui">
-  <b>🎨 らくがきAR v27.0</b>
+  <b>🏢 新庁舎記念撮影AR</b>
   <div class="row">
-    <div id="btn-shoot" class="btn">📷 撮影</div>
-    <div id="btn-file-trigger" class="btn">🖼️ 選択</div>
+    <div id="btn-file-trigger" class="btn">🖼️ らくがき選択</div>
     <div id="btn-del" class="btn" style="background:#822">🗑️ 消去</div>
-    <div id="btn-capture" class="btn">📸 保存</div>
+    <div id="btn-capture" class="btn">📸 記念撮影(保存)</div>
   </div>
 </div>
 
@@ -53,7 +61,7 @@
   </div>
   <div id="crop-btns">
     <button id="cb-cancel" class="btn" style="background:#555;">戻る</button>
-    <button id="cb-ok" class="btn" style="background:#007bff;">生成</button>
+    <button id="cb-ok" class="btn" style="background:#007bff;">AR生成</button>
   </div>
 </div>
 
@@ -63,13 +71,13 @@
 <script>
 'use strict';
 
-const video = document.getElementById('cam-video');
-const glCanvas = document.getElementById('gl-canvas');
-navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(s => video.srcObject = s);
+// 背景画像のURLを保持
+const BG_URL = 'shinchosha.png';
 
+const glCanvas = document.getElementById('gl-canvas');
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 1000);
-camera.position.set(0, 10, 20);
+camera.position.set(0, 5, 15);
 camera.lookAt(0, 0, 0);
 
 const renderer = new THREE.WebGLRenderer({ canvas: glCanvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
@@ -78,7 +86,7 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 
 let charObj;
 
-// --- AR空間での独立した拡大縮小 ---
+// --- ズーム操作 ---
 let initialPinchDist = null;
 window.addEventListener('touchmove', (e) => {
   if (e.touches.length === 2 && charObj && !cropEl.classList.contains('on')) {
@@ -121,18 +129,13 @@ function createARModel(sourceImg, pts, drawW, drawH) {
     for(let i=1; i<imgPts.length; i++) shape.lineTo(imgPts[i].x - minX - cx, -(imgPts[i].y - minY - cy));
 
     const geometry = new THREE.ExtrudeGeometry(shape, { depth: 10, bevelEnabled: false });
-    const pos = geometry.attributes.position;
-    const uv = geometry.attributes.uv;
-    for (let i = 0; i < pos.count; i++) {
-        uv.setXY(i, (pos.getX(i) + cx) / w, (pos.getY(i) + cy) / h);
-    }
-
     const material = new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.1, side: THREE.DoubleSide });
     const mesh = new THREE.Mesh(geometry, material);
-    const scale = 7.0 / h;
+    
+    const scale = 5.0 / h;
     mesh.scale.set(scale, scale, 0.05);
-    mesh.rotation.x = Math.PI / 180 * 30; 
-    mesh.position.y = 0.5;
+    mesh.rotation.x = Math.PI / 180 * 30; // 地面になじむ30度
+    mesh.position.y = -2; // 庁舎の入り口付近に見えるよう調整
     return mesh;
 }
 
@@ -142,11 +145,9 @@ let rawImg = new Image(), pts = [], drawing = false;
 function openCrop(src) {
     rawImg.src = src;
     rawImg.onload = () => {
-        // 画面に収まるサイズを計算してキャンバスを設定
         const ratio = Math.min(window.innerWidth / rawImg.width, (window.innerHeight * 0.8) / rawImg.height);
         photoCv.width = drawCv.width = rawImg.width * ratio;
         photoCv.height = drawCv.height = rawImg.height * ratio;
-        
         photoCv.getContext('2d').drawImage(rawImg, 0, 0, photoCv.width, photoCv.height);
         pts = [];
         drawCtx.clearRect(0, 0, drawCv.width, drawCv.height);
@@ -154,22 +155,15 @@ function openCrop(src) {
     };
 }
 
-// 描画イベント（拡大縮小なしのシンプル版）
 const getP = (e) => {
     const r = drawCv.getBoundingClientRect();
     const t = e.touches ? e.touches[0] : e;
     return { x: t.clientX - r.left, y: t.clientY - r.top };
 };
 
-drawCv.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    drawing = true;
-    pts = [getP(e)];
-}, {passive: false});
-
+drawCv.addEventListener('touchstart', (e) => { e.preventDefault(); drawing = true; pts = [getP(e)]; }, {passive: false});
 drawCv.addEventListener('touchmove', (e) => {
-    e.preventDefault();
-    if(!drawing) return;
+    e.preventDefault(); if(!drawing) return;
     pts.push(getP(e));
     drawCtx.clearRect(0, 0, drawCv.width, drawCv.height);
     drawCtx.strokeStyle = "#0f0"; drawCtx.lineWidth = 4;
@@ -185,20 +179,40 @@ document.getElementById('cb-ok').onclick = () => {
     cropEl.classList.remove('on');
 };
 
-// 基本UI
 const fileIn = document.getElementById('file-in');
 document.getElementById('btn-file-trigger').onclick = () => fileIn.click();
 fileIn.onchange = (e) => { if(e.target.files[0]) { const r=new FileReader(); r.onload=(f)=>openCrop(f.target.result); r.readAsDataURL(e.target.files[0]); fileIn.value=""; } };
-document.getElementById('btn-shoot').onclick = () => {
-    const c=document.createElement('canvas'); c.width=video.videoWidth; c.height=video.videoHeight;
-    c.getContext('2d').drawImage(video,0,0); openCrop(c.toDataURL());
-};
 document.getElementById('btn-del').onclick = () => { if(charObj) scene.remove(charObj); charObj=null; };
 document.getElementById('cb-cancel').onclick = () => cropEl.classList.remove('on');
+
+// 記念撮影（庁舎背景＋ARを合成して保存）
 document.getElementById('btn-capture').onclick = () => {
-    const out=document.createElement('canvas'); out.width=video.videoWidth; out.height=video.videoHeight;
-    const ctx=out.getContext('2d'); ctx.drawImage(video,0,0); ctx.drawImage(glCanvas,0,0,out.width,out.height);
-    const link=document.createElement('a'); link.download=`AR_${Date.now()}.png`; link.href=out.toDataURL(); link.click();
+    const out = document.createElement('canvas');
+    out.width = window.innerWidth;
+    out.height = window.innerHeight;
+    const ctx = out.getContext('2d');
+
+    // 背景画像を描画
+    const bgImg = new Image();
+    bgImg.crossOrigin = "anonymous";
+    bgImg.onload = () => {
+        // 背景をアスペクト比を保って描画
+        const hRatio = out.width / bgImg.width;
+        const vRatio = out.height / bgImg.height;
+        const ratio = Math.max(hRatio, vRatio);
+        const centerShift_x = (out.width - bgImg.width * ratio) / 2;
+        const centerShift_y = (out.height - bgImg.height * ratio) / 2;
+        ctx.drawImage(bgImg, 0, 0, bgImg.width, bgImg.height, centerShift_x, centerShift_y, bgImg.width * ratio, bgImg.height * ratio);
+        
+        // ARキャンバスを重ねる
+        ctx.drawImage(glCanvas, 0, 0);
+        
+        const link = document.createElement('a');
+        link.download = `Ebetsu_AR_${Date.now()}.png`;
+        link.href = out.toDataURL();
+        link.click();
+    };
+    bgImg.src = BG_URL;
 };
 
 let ry=0, mx=0, mz=0;
